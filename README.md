@@ -1,6 +1,6 @@
-# AI Security Audit Platform (v2.2.1)
+# AI Security Audit Platform (v2.5)
 
-**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng & Hạ Tầng Độc Lập — 100% On-Premise (White-Box Code Audit + Patch-Diff + Agentless SSH/Push + Outside-In Web Discovery + Local AI Multi-Agent).**
+**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng & Hạ Tầng Độc Lập — 100% On-Premise (White-Box Code Audit + Patch-Diff + Agentless SSH/Push + Outside-In Web Discovery + Local AI Multi-Agent + Live GPU Telemetry).**
 
 Được thiết kế theo chuẩn **CTEM (Continuous Threat Exposure Management)** & **Grey-Box Security Assessment ("Trong soi ra — Ngoài soi vào")**, giúp phát hiện các **lỗ hổng chưa biết tới (0-day, lỗi logic nghiệp vụ, IDOR, SQLi sâu trong mã nguồn/DLL, NoSQLi, Shadow API, sai cấu hình hạ tầng)** mà WAF hay máy quét lỗ hổng truyền thống thường bỏ sót — **0 byte mã nguồn rời khỏi mạng nội bộ**.
 
@@ -18,31 +18,49 @@
 
 ### B. Quy Trình Kiểm Toán 4 Lớp + AI 3-Agent (100% Local Ollama)
 1. **Lớp 1 — Secret Scanning (`Gitleaks`):** Quét lộ mật khẩu, API key, JWT secret, private key, chuỗi kết nối DB.
-2. **Lớp 2 — SCA & Misconfiguration (`Trivy`):** Quét CVE thư viện, package lỗi thời và sai cấu hình hạ tầng/Docker.
+2. **Lớp 2 — SCA & Misconfiguration (`Trivy`):** Quét CVE thư viện, package lỗi thời và sai cấu hình hạ tầng/Docker (có tự động loại trừ thư mục nặng & giới hạn timeout an toàn).
 3. **Lớp 3 — Static Application Security Testing (`Semgrep`):** Quét mã nguồn (kể cả `.NET` DLL đã tự động giải biên dịch) theo bộ rule chuyên sâu 15 hệ sinh thái.
 4. **Lớp 4 — AI 3-Agent Reasoning (Ollama Local):**
    - **Agent 1 (Attack Surface Mapper):** Lập bản đồ toàn bộ endpoint API, `.asmx`/`.ashx`, SQL sinks, File Upload, Nginx/HAProxy routes.
-   - **Agent 2 (Deep Audit & Variant Hunter):** Suy luận sâu các lỗi logic/0-day theo từng Playbook chuyên biệt; hỗ trợ chọn linh hoạt model nhẹ nhanh (`qwen3-vl:8b` cho GPU 8 GB VRAM) hoặc model sâu (`qwen3:30b-a3b`, `gemma3:27b`).
-   - **Agent 3 (Critic / False-Positive Filter):** Tự phản biện lọc cảnh báo giả (dùng `deepseek-r1:14b`), đề xuất cách vá code và sinh **ModSecurity Virtual Patch** chặn tạm.
+   - **Agent 2 (Deep Audit & Variant Hunter):** Suy luận sâu các lỗi logic/0-day theo từng Playbook chuyên biệt; chọn linh hoạt model AI ngay trước khi chạy qua **Hộp thoại Chọn Model** (tự động đọc dung lượng thực tế từ Ollama và gắn nhãn `100% GPU` hoặc `GPU + RAM`).
+   - **Agent 3 (Critic / False-Positive Filter):** Tự phản biện lọc cảnh báo giả (mặc định `deepseek-r1:14b`), đề xuất cách vá code và sinh **ModSecurity Virtual Patch** chặn tạm.
 
 ### C. Thu Thập Không Cài Agent (Agentless) & Soi Bề Mặt Ngoài Vào
-- **Agentless SSH (Linux / Windows OpenSSH):** Hỗ trợ SSH Key `ed25519` chuyên dụng, Custom Private Key hoặc Password (`keyboard-interactive`). Mặc định **Auto-Discovery toàn bộ hệ thống** (OS, Firewall, Ports, Docker, cấu hình Nginx/HAProxy/DB/MongoDB và tự dò toàn bộ mã nguồn sạch, tự loại trừ `node_modules`, `.next`, `vendor`, `uploads`, `.cache`, ảnh/video/log).
-- **1-Line Push Collector (Token-Protected):** Chạy đúng 1 dòng lệnh PowerShell (`irm ... | iex`) trên Windows Server hoặc Bash (`curl ... | sudo bash`) trên Linux khi không mở cổng SSH vào $\rightarrow$ tự thu thập chỉ-đọc, upload về trung tâm, tự dọn file tạm và **tự động chạy AI System Audit**.
+- **Agentless SSH (Linux / Windows OpenSSH):** Hỗ trợ SSH Key `ed25519` chuyên dụng, Custom Private Key hoặc Password (`keyboard-interactive`). Mặc định **Auto-Discovery toàn bộ hệ thống** (OS, Firewall, Ports, Docker, cấu hình Nginx/HAProxy/DB/MongoDB và tự dò toàn bộ mã nguồn sạch, tự loại trừ `*/node_modules`, `*/.next`, `*/vendor`, `*/uploads`, `*/.cache`, ảnh/video/log với ngưỡng an toàn `15,000 files / 150 MB`).
+- **Thu thập nhanh 1-Dòng (Token-Protected + Tải trực tiếp `.ps1` / `.sh`):** Chạy 1 dòng lệnh PowerShell / Bash hoặc bấm tải trực tiếp file `win_collector.ps1` / `linux_collector.sh` (tránh cảnh báo ClickFix trên trình duyệt) cho máy không mở cổng SSH vào $\rightarrow$ tự thu thập chỉ-đọc, upload về trung tâm, tự dọn file tạm và **tự động chạy AI System Audit**.
 - **Patch-Diff & Variant Analysis:** So sánh `git diff` giữa 2 phiên bản để phát hiện lỗi hồi quy bảo mật (**Security Regression**) và truy vết các biến thể chưa vá trên toàn codebase.
-- **Outside-In Web Surface Discovery (`ProjectDiscovery Katana` + `httpx`):** Crawl an toàn có giới hạn tốc độ (`-rl 10 req/s`) để tìm API ẩn trong JavaScript bundle (Next.js/React/WordPress), kiểm tra TLS/Headers và ghép chéo **Shadow API** bằng AI.
-- **Xuất Báo Cáo Lãnh Đạo 1-Click:** Xuất trực tiếp **PDF khổ A4** (tiếng Việt UTF-8 sắc nét) và **Excel `.xlsx` 5 Sheet** có KPI, màu mức độ rủi ro và bộ lọc sẵn.
+- **Outside-In Web Surface Discovery (`ProjectDiscovery Katana` + `httpx`):** Crawl an toàn có giới hạn tốc độ (`-rl 10 req/s`) để tìm API ẩn trong JavaScript bundle (Next.js/React/WordPress), kiểm tra TLS/Headers và phân tích chéo **Shadow API** bằng Model AI tự chọn.
+
+### D. Vận Hành & Giám Sát Trực Quan (v2.3 – v2.5)
+- **Live GPU Telemetry (`/api/telemetry`):** Pill badge ở góc trên bên phải tự động cập nhật mỗi 3 giây hiển thị `% GPU`, `VRAM đang dùng / tổng VRAM (MiB)`, nhiệt độ GPU, model đang nạp trong Ollama (`/api/ps`) cùng thời gian & `%` tiến độ tác vụ đang chạy.
+- **Tiến độ `%`, Bộ đếm thời gian & Smart Auto-Scroll:** Bảng tác vụ lưu bền lịch sử (`jobs_history.json`), có thanh tiến độ `%`, bộ đếm `mm:ss`, nút **`Dừng` / `Chạy lại` / `Xóa` / `Xóa tất cả`**, giữ nguyên vị trí khi lăn chuột đọc log cũ và nút **`Xuống cuối log`**.
+- **Kho Báo Cáo & Xuất File Lãnh Đạo 1-Click:** Hiển thị bảng HTML tiếng Việt trực quan cho cả **Gitleaks**, **Trivy SCA** và **Semgrep**, hỗ trợ xóa đợt báo cáo cũ và xuất 1-click **PDF khổ A4** (UTF-8 sắc nét) + **Excel `.xlsx` 5 Sheet**.
 
 ---
 
-## 2. Yêu Cầu Phần Cứng & Phần Mềm
+## 2. Yêu Cầu Phần Cứng & Tư Vấn Chọn Model AI (GPU VRAM vs RAM)
 
-| Thành phần | Tối thiểu (Quick Scan + AI nhẹ 8B) | Khuyến nghị (Full AI 14B–30B MoE) |
+| Thành phần | Tối thiểu (Quick Scan + AI nhẹ 7B–8B) | Khuyến nghị (Full AI 14B–30B MoE) |
 |---|---|---|
 | **CPU** | 4–8 vCPU | 8–16 Cores (VD: Intel i7 / Xeon) |
-| **RAM** | 16 GB | 32–64 GB |
-| **GPU (tùy chọn)** | NVIDIA 8 GB VRAM (chạy mượt `qwen3-vl:8b`) | NVIDIA 16–24 GB VRAM (chạy mượt `14B–30B`) |
+| **RAM hệ thống** | 16 GB | 32–64 GB |
+| **GPU (tùy chọn)** | NVIDIA 8 GB VRAM (chạy 100% GPU với model 7B–8B) | NVIDIA 16–24 GB VRAM (chạy 100% GPU với 14B–30B) |
 | **Ổ cứng** | 50 GB trống | 100+ GB SSD trống |
 | **Hệ điều hành** | Windows 11 / Windows Server 2022–2025 (**WSL2 Ubuntu**) hoặc **Ubuntu 22.04/24.04 LTS** | Windows 11/Server + WSL2 Ubuntu hoặc Ubuntu 24.04 LTS |
+
+### Hiểu đúng về GPU VRAM (8 GB) vs RAM hệ thống (32 GB) khi chạy Ollama
+- Ollama luôn ưu tiên nạp model vào **VRAM của GPU** để đạt tốc độ cao nhất.
+- **Model < 8 GB** (VD: `qwen3-vl:8b`, `qwen2.5vl:7b`): nạp **100% vào GPU VRAM** $\rightarrow$ phản hồi rất nhanh.
+- **Model > 8 GB** (VD: `deepseek-r1:14b`, `qwen3:30b-a3b`, `gemma3:27b`, `qwen3-vl:30b`): khi vượt quá dung lượng VRAM, Ollama tự động **chạy lai (Hybrid GPU + RAM)** — nạp tối đa vào GPU VRAM và tràn phần còn lại sang **32 GB RAM hệ thống** (CPU xử lý phần tràn). Nhờ đó máy vẫn chạy được đầy đủ các model lớn mà không bị thiếu bộ nhớ, nhưng phần chạy qua RAM sẽ chậm hơn 100% GPU.
+
+| Model AI (Ollama Local) | Dung lượng | Cách chạy trên GPU 8 GB VRAM + 32 GB RAM | Khuyến nghị sử dụng |
+|---|---:|---|---|
+| `qwen3-vl:8b` | ~6.2 GB | **100% GPU (VRAM)** — Rất nhanh | **Mặc định hằng ngày** cho Kiểm toán sâu, 1-Line Push Audit & Katana AI |
+| `qwen2.5vl:7b` | ~6.0 GB | **100% GPU (VRAM)** — Rất nhanh | Model nhẹ dự phòng, phản hồi tức thì |
+| `deepseek-r1:14b` | ~9.0 GB | **~75% GPU + ~25% RAM** — Khá nhanh | **Model Phản biện (Critic)** lọc báo động giả & So sánh Bản vá |
+| `qwen3:30b-a3b` (MoE) | ~18.0 GB | **~35% GPU + ~65% RAM** — Trung bình | Kiến trúc MoE (chỉ kích hoạt 3B/token) — Kiểm toán sâu mã nguồn lõi |
+| `gemma3:27b` (Dense) | ~17.0 GB | **~35% GPU + ~65% RAM** — Chậm | Kiến trúc Dense (kích hoạt đủ 27B/token) — Chạy sâu qua đêm |
+| `qwen3-vl:30b` (MoE+VL) | ~19.0 GB | **~35% GPU + ~65% RAM** — Trung bình | Bản 30B đa phương thức (code + hình ảnh) |
 
 ---
 
@@ -95,7 +113,7 @@ chmod +x /usr/local/bin/{gitleaks,trivy,katana,httpx}
 ```
 
 ### Bước 3: Cài đặt Ollama & Tải Model AI Cục Bộ (100% On-Premise)
-Cài Ollama tại [https://ollama.com/download](https://ollama.com/download) và tải model phù hợp với GPU:
+Cài Ollama tại [https://ollama.com/download](https://ollama.com/download) và tải model phù hợp phần cứng:
 ```bash
 # GPU 8 GB VRAM (nhanh, nhẹ — khuyến nghị mặc định):
 ollama pull qwen3-vl:8b
@@ -134,7 +152,7 @@ print('Created web/admin_credentials.txt')
 - **Chạy nền tự động cùng Windows (Scheduled Task) & chỉ mở cổng `2810` cho dải VPN/LAN nội bộ:**
   ```powershell
   # Chỉ cho phép dải mạng quản trị / VPN truy cập cổng 2810
-  New-NetFirewallRule -DisplayName 'AI-Security-Audit-Web-2810' -Direction Inbound -Protocol TCP -LocalPort 2810 -RemoteAddress '10.7.0.0/24','127.0.0.1' -Action Allow
+  New-NetFirewallRule -DisplayName 'AI-Security-Audit-Web-2810' -Direction Inbound -Protocol TCP -LocalPort 2810 -RemoteAddress '10.x.x.0/24','127.0.0.1' -Action Allow
 
   # Đăng ký tự khởi động cùng hệ thống
   $act = New-ScheduledTaskAction -Execute 'F:\ERP-Audit-Lab\web-venv\Scripts\uvicorn.exe' -Argument 'app:app --host 0.0.0.0 --port 2810' -WorkingDirectory 'F:\ERP-Audit-Lab\web'
@@ -147,14 +165,15 @@ print('Created web/admin_credentials.txt')
 
 ---
 
-## 4. Hướng Dẫn Sử Dụng Nhanh (6 Tab Trên Web Portal)
+## 4. Hướng Dẫn Sử Dụng Nhanh (7 Tab Trên Web Portal v2.5)
 
-1. **Tab 1 — Dự án & Quét Agentless:** Chọn Model AI (`qwen3-vl:8b` nhanh / `qwen3:30b-a3b` sâu), thêm máy chủ từ xa qua **Agentless SSH** (để trống đường dẫn = tự động quét toàn bộ hệ thống) hoặc thư mục Local $\rightarrow$ bấm **`Test SSH`**, **`Quick Scan`** hoặc **`Full AI Audit`**.
-2. **Tab 2 — SSH Key & 1-Line Collector:** Copy lệnh cài SSH Public Key (`ed25519`), hoặc copy lệnh **1-dòng PowerShell (`irm ... | iex`)** / **Linux (`curl ... | sudo bash`)** cho các máy không mở SSH vào.
-3. **Tab 3 — Patch-Diff & Variant Analysis:** Dán `git diff` giữa 2 phiên bản để AI tìm lỗi hồi quy và săn biến thể chưa vá.
-4. **Tab 4 — Tiến trình & Live Log:** Theo dõi log trực tiếp theo thời gian thực và chủ động bấm **`Dừng (Stop)`** nếu cần.
-5. **Tab 5 — Web Surface (`Katana + httpx`):** Nhập URL thuộc quyền sở hữu để crawl tìm endpoint ẩn trong JS/SPA và phân tích Shadow API bằng AI.
-6. **Tab 6 — Báo cáo & Xuất PDF/Excel:** Xem trực tiếp báo cáo Markdown/JSON và bấm **`Xuất Báo Cáo PDF (Gửi Lãnh Đạo)`** hoặc **`Xuất Báo Cáo Excel (.xlsx)`**.
+1. **`1. Dự án & Quét`:** Bấm nút **`+ Tạo dự án mới`** để thêm máy chủ qua **Agentless SSH** (để trống đường dẫn = tự động dò toàn bộ hệ thống) hoặc thư mục Local $\rightarrow$ bấm **`Kiểm tra SSH`**, **`Quét nhanh`** (~30–60 giây) hoặc **`Kiểm toán AI sâu`** (mở hộp thoại chọn Model AI ngay trước khi quét).
+2. **`2. Kết nối & Collector`:** Sao chép lệnh cài SSH Public Key (`ed25519`), hoặc sao chép lệnh **1-dòng** / bấm **`Tải file win_collector.ps1`** / **`Tải file linux_collector.sh`** cho các máy không mở SSH vào.
+3. **`3. So sánh Bản vá`:** Dán `git diff` giữa 2 phiên bản để AI tìm lỗi hồi quy bảo mật (**Security Regression**) và săn biến thể chưa vá.
+4. **`4. Tiến trình & Log`:** Theo dõi thanh tiến độ `%`, bộ đếm thời gian `mm:ss`, nhật ký chạy trực tiếp (Smart Auto-Scroll + nút **`Xuống cuối log`**), cùng các nút **`Dừng`**, **`Chạy lại`**, **`Xóa`** và **`Xóa toàn bộ lịch sử đã xong/lỗi`**.
+5. **`5. Bề mặt Web`:** Nhập URL thuộc quyền sở hữu để chạy `Katana + httpx` tìm endpoint ẩn trong JS/SPA và chọn Model AI phân tích **Shadow API**.
+6. **`6. Báo cáo & Xuất file`:** Xem trực tiếp báo cáo Markdown và bảng HTML cho Gitleaks / Trivy / Semgrep, bấm **`Xuất Báo Cáo PDF (Gửi Lãnh Đạo)`**, **`Xuất Báo Cáo Excel (.xlsx — 5 Sheet)`** hoặc **`Xóa đợt báo cáo này`**.
+7. **`7. Hướng dẫn`:** Tài liệu quy trình 4 bước chuẩn, bảng tư vấn chọn 6 Model AI theo GPU VRAM + RAM và lưu ý bảo mật tích hợp ngay trên Web Portal.
 
 ---
 
