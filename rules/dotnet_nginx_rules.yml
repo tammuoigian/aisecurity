@@ -1,0 +1,54 @@
+rules:
+  - id: dotnet-csharp-sqli-concat
+    languages: [csharp]
+    severity: ERROR
+    message: "Potential SQL Injection: dynamic SQL string concatenation passed to SqlCommand/FromSqlRaw/ExecuteSqlRaw."
+    pattern-either:
+      - pattern: new SqlCommand($Q + $X, ...)
+      - pattern: $CMD.CommandText = $Q + $X;
+      - pattern: $DB.FromSqlRaw($Q + $X, ...)
+      - pattern: $DB.ExecuteSqlRaw($Q + $X, ...)
+      - pattern: $DB.ExecuteSqlRawAsync($Q + $X, ...)
+
+  - id: dotnet-csharp-dangerous-deserialization
+    languages: [csharp]
+    severity: ERROR
+    message: "Dangerous .NET deserialization (BinaryFormatter or TypeNameHandling != None) can lead to RCE."
+    pattern-either:
+      - pattern: new BinaryFormatter(...)
+      - pattern: TypeNameHandling.All
+      - pattern: TypeNameHandling.Auto
+      - pattern: TypeNameHandling.Objects
+
+  - id: dotnet-csharp-process-start
+    languages: [csharp]
+    severity: ERROR
+    message: "OS Command Execution via Process.Start — verify all arguments are strictly allowlisted."
+    pattern-either:
+      - pattern: Process.Start(...)
+      - pattern: new ProcessStartInfo(...)
+
+  - id: dotnet-csharp-allow-anonymous
+    languages: [csharp]
+    severity: WARNING
+    message: "Endpoint marked [AllowAnonymous] — verify no sensitive ERP/DMS data or state change is exposed."
+    pattern: "[AllowAnonymous]"
+
+  - id: dotnet-csharp-file-write-upload
+    languages: [csharp]
+    severity: WARNING
+    message: "File write/upload operation — verify extension allowlist, path canonicalization, and no '../' traversal."
+    pattern-either:
+      - pattern: File.WriteAllBytes($P, ...)
+      - pattern: $F.SaveAs($P)
+      - pattern: new FileStream($P, FileMode.Create, ...)
+
+  - id: dotnet-csharp-weak-crypto
+    languages: [csharp]
+    severity: WARNING
+    message: "Weak cryptographic algorithm (MD5/SHA1/DES) detected."
+    pattern-either:
+      - pattern: MD5.Create()
+      - pattern: new MD5CryptoServiceProvider()
+      - pattern: SHA1.Create()
+      - pattern: new DESCryptoServiceProvider()

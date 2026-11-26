@@ -1,0 +1,80 @@
+rules:
+  # === MONGODB & NOSQL INJECTION ===
+  - id: multistack-mongodb-bind-all
+    languages: [generic]
+    paths:
+      include: ["*mongod.conf*", "*mongo*.yml*", "*mongo*.yaml*"]
+    severity: ERROR
+    message: "MongoDB bindIp 0.0.0.0 exposes database to all interfaces — restrict to localhost or private VPN IP."
+    pattern-regex: '(?i)\bbindIp\s*:\s*.*0\.0\.0\.0'
+
+  - id: multistack-mongodb-auth-disabled
+    languages: [generic]
+    paths:
+      include: ["*mongod.conf*"]
+    severity: ERROR
+    message: "MongoDB security.authorization is disabled — unauthenticated database access risk."
+    pattern-regex: '(?i)\bauthorization\s*:\s*disabled\b'
+
+  - id: multistack-mongodb-nosqli-js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Potential NoSQL Injection: unvalidated req.body/req.query or $where passed directly into MongoDB query."
+    pattern-either:
+      - pattern: $COL.find(req.body, ...)
+      - pattern: $COL.findOne(req.body, ...)
+      - pattern: $COL.find(req.query, ...)
+      - pattern: $COL.findOne(req.query, ...)
+      - pattern: '$COL.find({ $where: $X }, ...)'
+
+  # === MICROSOFT SQL SERVER (MSSQL) ===
+  - id: multistack-mssql-unencrypted-conn
+    languages: [generic]
+    paths:
+      include: ["*.config", "*.json", "*.env*", "*.cs"]
+    severity: WARNING
+    message: "MSSQL connection string disables encryption or skips certificate verification (Encrypt=False / TrustServerCertificate=True)."
+    pattern-regex: '(?i)(Encrypt\s*=\s*False|TrustServerCertificate\s*=\s*True)'
+
+  - id: multistack-mssql-dangerous-tsql
+    languages: [generic]
+    paths:
+      include: ["*.sql", "*.cs", "*.xml"]
+    severity: ERROR
+    message: "Dangerous MS SQL feature or dynamic T-SQL execution (xp_cmdshell / Ole Automation / EXEC(@sql))."
+    pattern-regex: '(?i)(xp_cmdshell|Ole Automation Procedures|\bEXEC\s*\(\s*@)'
+
+  # === API SECURITY (OWASP API TOP 10) & OWASP TOP 10 UNIVERSAL ===
+  - id: owasp-api-cors-wildcard-creds
+    languages: [generic]
+    severity: ERROR
+    message: "[OWASP A05 / API8] Wildcard CORS (*) or overly permissive AllowAnyOrigin()."
+    pattern-regex: '(AllowAnyOrigin\(\)|Access-Control-Allow-Origin["\x27\s:=]+\*)'
+
+  - id: owasp-a02-tls-verify-disabled
+    languages: [generic]
+    severity: ERROR
+    message: "[OWASP A02/A07] TLS certificate verification disabled (rejectUnauthorized: false / verify=False / ServerCertificateCustomValidationCallback)."
+    pattern-regex: '(rejectUnauthorized\s*:\s*false|verify\s*=\s*False|ServerCertificateCustomValidationCallback)'
+
+  - id: owasp-a05-debug-enabled
+    languages: [generic]
+    paths:
+      include: ["*.config", "*.env*", "*.py", "*.json"]
+    severity: WARNING
+    message: "[OWASP A05] Debug mode enabled in configuration (debug=true / DEBUG=True)."
+    pattern-regex: '(?i)(<compilation[^>]+debug="true"|^DEBUG\s*=\s*True\b)'
+
+  - id: owasp-a01-open-redirect-dotnet
+    languages: [csharp]
+    severity: WARNING
+    message: "[OWASP A01] Potential Open Redirect: Response.Redirect using Request input without local URL validation."
+    pattern-either:
+      - pattern: Response.Redirect(Request[$K], ...)
+      - pattern: Response.Redirect(Request.QueryString[$K], ...)
+
+  - id: owasp-a03-xxe-dotnet
+    languages: [csharp]
+    severity: ERROR
+    message: "[OWASP A03] Potential XXE (XML External Entity): DtdProcessing.Parse enabled."
+    pattern: DtdProcessing.Parse

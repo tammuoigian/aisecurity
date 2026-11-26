@@ -1,0 +1,21 @@
+# Runtime data, secrets, keys, and scan outputs (NEVER commit)
+repo/
+targets/
+reports/
+web-venv/
+__pycache__/
+*.pyc
+web/auth.json
+web/admin_credentials.txt
+web/project_secrets.json
+web/projects.json
+web/keys/
+web/jobs/
+*.key
+*.pem
+*.pfx
+*.pub
+*.pdf
+*.xlsx
+*.log
+*.tmp

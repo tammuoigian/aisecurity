@@ -1,0 +1,68 @@
+rules:
+  # === DOCKER & COMPOSE ===
+  - id: multistack-docker-privileged
+    languages: [yaml]
+    severity: ERROR
+    message: "Docker container running with privileged: true (full host root escape risk)."
+    pattern: "privileged: true"
+
+  - id: multistack-docker-sock-mount
+    languages: [yaml]
+    severity: ERROR
+    message: "Docker socket (/var/run/docker.sock) mounted into container — equivalent to host root."
+    pattern-regex: '/var/run/docker\.sock'
+
+  - id: multistack-docker-network-host
+    languages: [yaml]
+    severity: WARNING
+    message: "Docker container using network_mode: host — bypasses container network isolation."
+    pattern: "network_mode: host"
+
+  # === NGINX / HAPROXY / UBUNTU / POSTGRES / MYSQL / MCP CONFIG ===
+  - id: multistack-nginx-autoindex-on
+    languages: [generic]
+    paths:
+      include: ["*.conf", "nginx*"]
+    severity: WARNING
+    message: "Nginx autoindex on exposes directory listings."
+    pattern-regex: '(?i)\bautoindex\s+on\s*;'
+
+  - id: multistack-haproxy-stats-no-auth
+    languages: [generic]
+    paths:
+      include: ["*haproxy*"]
+    severity: WARNING
+    message: "HAProxy stats enabled — verify 'stats auth' and internal bind IP are enforced."
+    pattern-regex: '(?i)^\s*stats\s+enable\b'
+
+  - id: multistack-postgres-trust-auth
+    languages: [generic]
+    paths:
+      include: ["*pg_hba.conf*"]
+    severity: ERROR
+    message: "PostgreSQL pg_hba.conf uses 'trust' authentication (passwordless login!)."
+    pattern-regex: '(?i)^\s*(?:host|hostssl|hostnossl)\s+\S+\s+\S+\s+\S+\s+trust\b'
+
+  - id: multistack-mysql-local-infile
+    languages: [generic]
+    paths:
+      include: ["*my.cnf*", "*mysqld.cnf*"]
+    severity: ERROR
+    message: "MySQL local_infile=1 enables arbitrary client file read attacks."
+    pattern-regex: '(?i)^\s*local[_-]infile\s*=\s*(?:1|on|true)\b'
+
+  - id: multistack-ubuntu-ssh-root-login
+    languages: [generic]
+    paths:
+      include: ["*sshd_config*"]
+    severity: ERROR
+    message: "OpenSSH PermitRootLogin yes enabled."
+    pattern-regex: '(?i)^\s*PermitRootLogin\s+yes\b'
+
+  - id: multistack-ubuntu-sudo-nopasswd-all
+    languages: [generic]
+    paths:
+      include: ["*sudoers*"]
+    severity: WARNING
+    message: "Sudoers NOPASSWD: ALL rule detected — review least privilege."
+    pattern-regex: 'NOPASSWD:\s*ALL'

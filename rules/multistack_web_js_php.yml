@@ -1,0 +1,90 @@
+rules:
+  # === NEXT.JS & NODE.JS ===
+  - id: multistack-nodejs-cmd-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Potential Command Injection via child_process.exec/execSync — use execFile with argument array."
+    pattern-either:
+      - pattern: exec($CMD, ...)
+      - pattern: execSync($CMD, ...)
+      - pattern: child_process.exec($CMD, ...)
+      - pattern: child_process.execSync($CMD, ...)
+
+  - id: multistack-nodejs-eval-vm
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Dangerous dynamic code execution (eval / new Function / vm.runIn*)."
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: new Function(...)
+      - pattern: vm.runInNewContext(...)
+      - pattern: vm.runInThisContext(...)
+
+  - id: multistack-nextjs-xss-dangerously-set-html
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "dangerouslySetInnerHTML detected in React/Next.js — verify strict DOMPurify sanitization."
+    pattern-regex: 'dangerouslySetInnerHTML\s*='
+
+  - id: multistack-nextjs-public-secret-leak
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Potential secret exposed via NEXT_PUBLIC_ client environment variable."
+    pattern-regex: 'NEXT_PUBLIC_[A-Z0-9_]*(SECRET|TOKEN|KEY|PASSWORD|PWD|PRIVATE)'
+
+  - id: multistack-nodejs-jwt-none
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Insecure JWT verification (algorithms: none or jwt.decode used instead of jwt.verify)."
+    pattern-either:
+      - pattern: jwt.decode($T, ...)
+
+  # === WORDPRESS & PHP ===
+  - id: multistack-wp-sqli-wpdb
+    languages: [php]
+    severity: ERROR
+    message: "Potential WordPress SQL Injection: $wpdb->query/get_results/get_var called with variable concatenation instead of $wpdb->prepare()."
+    pattern-either:
+      - pattern: $wpdb->query($Q . $X)
+      - pattern: $wpdb->get_results($Q . $X, ...)
+      - pattern: $wpdb->get_var($Q . $X, ...)
+      - pattern: $wpdb->get_row($Q . $X, ...)
+
+  - id: multistack-php-rce-exec
+    languages: [php]
+    severity: ERROR
+    message: "Dangerous PHP OS command or code execution (eval/system/shell_exec/passthru/exec)."
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: system($X, ...)
+      - pattern: shell_exec($X)
+      - pattern: passthru($X, ...)
+      - pattern: exec($X, ...)
+
+  - id: multistack-php-object-injection
+    languages: [php]
+    severity: ERROR
+    message: "PHP unserialize() detected — risk of PHP Object Injection / RCE if input is untrusted."
+    pattern: unserialize($X, ...)
+
+  - id: multistack-php-lfi-include
+    languages: [php]
+    severity: ERROR
+    message: "Potential Local/Remote File Inclusion (include/require with user-controlled superglobal)."
+    pattern-either:
+      - pattern: include $_GET[$K];
+      - pattern: include $_POST[$K];
+      - pattern: require $_GET[$K];
+      - pattern: require_once $_GET[$K];
+
+  # === MCP SERVERS (PYTHON & TS) ===
+  - id: multistack-mcp-python-shell-injection
+    languages: [python]
+    severity: ERROR
+    message: "MCP/Python Command Injection risk: subprocess/os.system with shell=True or dynamic command."
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.check_output(..., shell=True, ...)
+      - pattern: os.system($CMD)
+      - pattern: eval($X)
