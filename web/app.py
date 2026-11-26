@@ -119,6 +119,7 @@ def load_projects():
 def save_projects(projs):
     PROJECTS_FILE.write_text(json.dumps(projs, indent=2, ensure_ascii=False), encoding="utf-8")
 
+
 def win_to_wsl(win_path: str) -> str:
     p = win_path.replace("\\", "/")
     m = re.match(r"^([A-Za-z]):/(.*)$", p)
@@ -1200,7 +1201,7 @@ async def api_collector_upload(request: Request, token: str = "", host: str = "u
         f"mkdir -p '{wsl_rep}' && "
         f"([ -f '{wsl_src}/live_system_audit.md' ] && cp '{wsl_src}/live_system_audit.md' '{wsl_rep}/00_live_system_audit.md' || true) && "
         f"gitleaks detect --source '{wsl_src}' --no-git --report-format json --report-path '{wsl_rep}/01_gitleaks_secrets.json' --exit-code 0 || true; "
-        f"trivy fs --timeout 5m --skip-dirs '**/node_modules,node_modules,**/.next,.next,**/vendor,vendor,**/.git,.git,**/uploads,uploads,**/cache,cache,**/wp-content/uploads' --skip-files '**/*.min.js,**/*.map' --scanners vuln,misconfig --misconfig-scanners dockerfile,terraform,kubernetes --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
+        f"bash /mnt/f/ERP-Audit-Lab/scripts/trivy_fast_stage.sh '{wsl_src}' '{wsl_rep}'; "
         f"semgrep scan --timeout 300 --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
         f"echo 'PUSH AUDIT COMPLETE -> F:\\ERP-Audit-Lab\\reports\\{tag}'"
     )
@@ -1344,7 +1345,7 @@ async def api_scan(request: Request):
         f"echo '[1/3] Gitleaks Secret Scan...' && "
         f"gitleaks detect --source '{wsl_src}' --no-git --report-format json --report-path '{wsl_rep}/01_gitleaks_secrets.json' --exit-code 0 || true; "
         f"echo '[2/3] Trivy SCA & Misconfig...' && "
-        f"trivy fs --timeout 5m --skip-dirs '**/node_modules,node_modules,**/.next,.next,**/vendor,vendor,**/.git,.git,**/uploads,uploads,**/cache,cache,**/wp-content/uploads' --skip-files '**/*.min.js,**/*.map' --scanners vuln,misconfig --misconfig-scanners dockerfile,terraform,kubernetes --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
+        f"bash /mnt/f/ERP-Audit-Lab/scripts/trivy_fast_stage.sh '{wsl_src}' '{wsl_rep}'; "
         f"echo '[3/3] Semgrep SAST (15 Stacks)...' && "
         f"semgrep scan --timeout 300 --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
         f"echo 'SCAN COMPLETE -> F:\\ERP-Audit-Lab\\reports\\{tag}'"
