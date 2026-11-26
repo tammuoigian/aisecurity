@@ -203,10 +203,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v2.2.2")
+app = FastAPI(title="AI Security Audit Platform v2.3")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2.2</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.3</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -216,7 +216,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v2.2.2</h1>
+<h1>AI Security Audit v2.3</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -225,7 +225,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2.2 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.3 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -233,8 +233,8 @@ header{background:#0f172a;border-bottom:1px solid #1e293b;padding:14px 24px;disp
 header h1{margin:0;font-size:18px;color:#38bdf8}
 .badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;background:#1e293b;color:#38bdf8;margin-left:6px}
 .badge-ssh{background:#064e3b;color:#34d399} .badge-local{background:#1e3a8a;color:#93c5fd} .badge-push{background:#581c87;color:#d8b4fe}
-.nav{display:flex;gap:8px;padding:12px 24px;background:#0f172a;border-bottom:1px solid #1e293b;flex-wrap:wrap}
-.nav button{background:#1e293b;color:#cbd5e1;border:1px solid #334155;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600}
+.nav{display:flex;gap:6px;padding:10px 24px;background:#0f172a;border-bottom:1px solid #1e293b;flex-wrap:wrap}
+.nav button{background:#1e293b;color:#cbd5e1;border:1px solid #334155;padding:6px 12px;border-radius:7px;cursor:pointer;font-weight:600;font-size:12.5px;transition:all .15s}
 .nav button.active{background:#0284c7;color:#fff;border-color:#0284c7}
 .wrap{max-width:1380px;margin:20px auto;padding:0 24px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px;margin-bottom:20px}
@@ -264,16 +264,17 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .keybox{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;color:#34d399;margin:6px 0}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v2.2.2 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Stacks</span></h1></div>
+  <div><h1>AI Security Audit v2.3 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div><span id="ollamaBadge" class="badge">Checking Ollama...</span> <a href="/logout" style="color:#94a3b8;margin-left:14px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
-  <button class="active" onclick="showTab('projects',this)">1. Dự án &amp; Quét Agentless</button>
-  <button onclick="showTab('sshkey',this)">2. SSH Key &amp; 1-Line Collector (Win/Linux)</button>
-  <button onclick="showTab('diff',this)">3. Patch-Diff &amp; Variant Analysis</button>
-  <button onclick="showTab('jobs',this)">4. Tiến trình &amp; Live Log</button>
-  <button onclick="showTab('katana',this)">5. Web Surface (Katana + httpx)</button>
-  <button onclick="showTab('reports',this)">6. Báo cáo &amp; Xuất PDF/Excel</button>
+  <button class="active" onclick="showTab('projects',this)">1. Dự án &amp; Quét</button>
+  <button onclick="showTab('sshkey',this)">2. Kết nối &amp; Collector</button>
+  <button onclick="showTab('diff',this)">3. So sánh Bản vá</button>
+  <button onclick="showTab('jobs',this)">4. Tiến trình &amp; Log</button>
+  <button onclick="showTab('katana',this)">5. Bề mặt Web</button>
+  <button onclick="showTab('reports',this)">6. Báo cáo &amp; Xuất file</button>
+  <button onclick="showTab('guide',this)">7. Hướng dẫn</button>
 </div>
 <div class="wrap">
   <div id="tab-projects">
@@ -284,7 +285,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
       <div class="card"><div class="kpi" id="kpiJobs">0</div><div class="kpi-lbl">Tác vụ đang chạy</div></div>
     </div>
     <div class="card">
-      <h2>Danh sách Dự án &amp; Máy chủ (1-Click Agentless Audit)</h2>
+      <h2>Danh sách Dự án &amp; Máy chủ (Kiểm toán 1-Click)</h2>
       <div class="row" style="margin-bottom:14px;background:#0f172a;padding:10px 14px;border-radius:8px;border:1px solid #1e293b">
         <div><label>Model AI quét chính (RTX 3050 8GB khuyến nghị: <b>qwen3-vl:8b</b> nhanh, <b>qwen3:30b-a3b</b> sâu)</label><select id="auditModelSel"><option value="qwen3-vl:8b">qwen3-vl:8b (Nhẹ, nhanh nhất 8GB VRAM)</option></select></div>
         <div><label>Model AI phản biện (Critic / Lọc lỗi giả)</label><select id="criticModelSel"><option value="deepseek-r1:14b">deepseek-r1:14b</option></select></div>
@@ -345,50 +346,52 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 
   <div id="tab-sshkey" class="hidden">
     <div class="card">
-      <h2>A. 1-Line Push Collector cho Windows Server (PowerShell — KHÔNG cần SSH / Agent)</h2>
+      <h2>A. Thu thập nhanh 1-Dòng cho Windows Server (PowerShell — Không cần SSH / Agent)</h2>
       <p style="color:#94a3b8">Chạy 1 dòng dưới đây trong PowerShell (Administrator) trên bất kỳ máy Windows Server nào trong VPN <code>10.7.0.0/24</code>. Script tự thu thập chỉ-đọc OS/Hotfix, Firewall, Defender, Ports, IIS, <b>MS SQL Server</b>, MongoDB/Docker, gửi về <code><AUDIT_SERVER>:2810</code>, tự dọn file tạm và <b>tự động chạy quét ngay!</b></p>
       <div class="keybox" id="winColCmd">Đang tải...</div>
-      <button class="btn btn-primary" onclick="copyText('winColCmd')">Copy lệnh Windows PowerShell</button>
+      <button class="btn btn-primary" onclick="copyText('winColCmd')">Sao chép lệnh PowerShell</button>
+      <button class="btn btn-green" onclick="downloadCollector('win')">Tải file win_collector.ps1</button>
       <button class="btn btn-danger" onclick="rotateToken()">Xoay vòng Token bảo mật</button>
     </div>
     <div class="card">
-      <h2>B. 1-Line Push Collector cho Linux / VPS (khi VPS chặn SSH từ ngoài)</h2>
+      <h2>B. Thu thập nhanh 1-Dòng cho Linux / VPS (Khi không mở SSH từ ngoài)</h2>
       <div class="keybox" id="linColCmd">Đang tải...</div>
-      <button class="btn btn-primary" onclick="copyText('linColCmd')">Copy lệnh Linux Bash</button>
+      <button class="btn btn-primary" onclick="copyText('linColCmd')">Sao chép lệnh Linux Bash</button>
+      <button class="btn btn-green" onclick="downloadCollector('linux')">Tải file linux_collector.sh</button>
     </div>
     <div class="card">
-      <h2>C. SSH Public Key chuyên dụng của AI Audit Lab (ed25519)</h2>
+      <h2>C. Khóa công khai SSH chuyên dụng (ed25519 — Quét không cần mật khẩu)</h2>
       <div class="keybox" id="pubKeyBox">Đang tải...</div>
       <label style="margin-top:10px">Lệnh cài nhanh 1 dòng trên máy chủ Linux đích:</label>
       <div class="keybox" id="pubCmdBox">Đang tải...</div>
-      <button class="btn btn-primary" onclick="copyText('pubCmdBox')">Copy lệnh cài SSH Key</button>
+      <button class="btn btn-primary" onclick="copyText('pubCmdBox')">Sao chép lệnh cài SSH Key</button>
     </div>
   </div>
 
   <div id="tab-diff" class="hidden">
     <div class="card">
-      <h2>Patch-Diff &amp; Variant Analysis (Săn lỗ hổng chưa biết từ bản vá)</h2>
+      <h2>So sánh Bản vá &amp; Săn biến thể lỗ hổng (Patch-Diff &amp; Variant Analysis)</h2>
       <div class="row">
         <div><label>Tên đợt phân tích</label><input id="diffName" value="patch-diff-manual"></div>
         <div><label>Model AI phân tích</label><select id="diffModel"><option value="qwen3:30b-a3b">qwen3:30b-a3b (Nhanh, đọc code mạnh)</option><option value="deepseek-r1:14b">deepseek-r1:14b (Suy luận sâu)</option></select></div>
       </div>
       <label>Dán nội dung Patch / Git Diff:</label>
       <textarea id="diffText" style="min-height:180px" placeholder="diff --git a/... b/..."></textarea>
-      <div style="margin-top:12px"><button class="btn btn-ai" onclick="runManualDiff()">Chạy AI Patch-Diff &amp; Variant Analysis</button></div>
+      <div style="margin-top:12px"><button class="btn btn-ai" onclick="runManualDiff()">Chạy AI Phân tích Bản vá &amp; Biến thể</button></div>
     </div>
   </div>
 
   <div id="tab-jobs" class="hidden">
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Lịch sử Tác vụ &amp; Live Log</h2><button class="btn btn-danger" onclick="clearFinishedJobs()">Xóa toàn bộ lịch sử đã xong/lỗi</button></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Lịch sử Tác vụ &amp; Nhật ký trực tiếp</h2><button class="btn btn-danger" onclick="clearFinishedJobs()">Xóa toàn bộ lịch sử đã xong/lỗi</button></div>
       <table><thead><tr><th>Job ID</th><th>Tên tác vụ</th><th>Trạng thái</th><th>Bắt đầu</th><th>Kết thúc</th><th>Log</th></tr></thead><tbody id="jobsTable"></tbody></table>
     </div>
-    <div class="card"><h2>Live Terminal Output</h2><pre id="jobLog">Chọn một tác vụ để xem log trực tiếp...</pre></div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h2 style="margin:0">Nhật ký chạy trực tiếp (Live Log)</h2><button class="btn btn-gray" onclick="scrollLogBottom()">Xuống cuối log</button></div><pre id="jobLog">Chọn một tác vụ ở bảng trên để xem nhật ký chạy trực tiếp...</pre></div>
   </div>
 
   <div id="tab-katana" class="hidden">
     <div class="card">
-      <h2>Web Surface &amp; SPA/Next.js Endpoint Discovery (ProjectDiscovery Katana + httpx)</h2>
+      <h2>Khám phá Bề mặt Web &amp; Endpoint ẩn (Katana + httpx)</h2>
       <p style="color:#94a3b8">Quét bề mặt ngoài vào (<b>Outside-In</b>) ở chế độ an toàn giới hạn tốc độ (<code>-rl 10 req/s</code>) cho các domain/URL thuộc quyền sở hữu: tự động tìm API ẩn trong JS bundle (Next.js/React/WordPress), kiểm tra TLS, Security Headers và Tech Stack.</p>
       <div class="row">
         <div><label>URL mục tiêu được phép quét (VD: https://app.domain.vn)</label><input id="kUrl" placeholder="https://..."></div>
@@ -398,13 +401,13 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
         <div><label>Độ sâu crawl (mặc định 3)</label><input id="kDepth" value="3"></div>
         <div><label>Phân tích chéo bằng AI Local (Shadow API / Exposure)?</label><select id="kAi"><option value="yes">Có — Phân tích bằng Ollama Local (qwen3:30b-a3b)</option><option value="no">Không — Chỉ chạy Katana + httpx (~20 giây)</option></select></div>
       </div>
-      <button class="btn btn-ai" onclick="runKatanaScan()">Chạy Web Surface Discovery (Katana + httpx)</button>
+      <button class="btn btn-ai" onclick="runKatanaScan()">Chạy Khám phá Bề mặt Web</button>
     </div>
   </div>
 
   <div id="tab-reports" class="hidden">
     <div class="card">
-      <h2>Danh sách Báo cáo Kiểm toán (F:\ERP-Audit-Lab\reports\)</h2>
+      <h2>Kho Báo cáo Kiểm toán &amp; Xuất File Gửi Lãnh Đạo</h2>
       <div class="row">
         <div><label>Chọn đợt báo cáo</label><select id="repFolder" onchange="loadReportFiles()"></select></div>
         <div><label>Chọn file báo cáo</label><select id="repFile" onchange="viewReportFile()"></select></div>
@@ -415,7 +418,41 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
         <button class="btn btn-gray" onclick="delReportFolder()">Xóa đợt báo cáo này</button>
       </div>
     </div>
-    <div class="card"><div id="repContent" class="md">Chọn báo cáo để xem chi tiết...</div></div>
+    <div class="card"><div id="repContent" class="md">Chọn đợt báo cáo và file ở trên để xem chi tiết...</div></div>
+  </div>
+  <div id="tab-guide" class="hidden">
+    <div class="card">
+      <h2>1. Quy Trình 4 Bước Kiểm Toán Bảo Mật Chuẩn</h2>
+      <table>
+        <thead><tr><th style="width:12%">Bước</th><th style="width:26%">Thao tác trên Web</th><th>Mô tả &amp; Kết quả đạt được</th></tr></thead>
+        <tbody>
+          <tr><td><b>Bước 1</b></td><td><b>Thêm Dự án / Máy chủ</b><br>(Tab 1 hoặc Tab 2)</td><td>Chọn 1 trong 3 cách:<br>• <b>Agentless SSH</b> (Linux/Windows mở SSH): nhập IP, User, SSH Key/Password. <i>Để trống ô đường dẫn</i> để hệ thống tự dò toàn bộ OS, Firewall, Docker, DB và mã nguồn sạch.<br>• <b>Thu thập 1-Dòng</b> (Tab 2): dùng cho Windows/Linux không mở SSH. Tải file <code>.ps1</code>/<code>.sh</code> hoặc copy lệnh chạy 1 dòng &rarr; tự đẩy dữ liệu về và tự quét.<br>• <b>Thư mục Local</b>: trỏ thẳng tới thư mục code trên máy chủ Audit.</td></tr>
+          <tr><td><b>Bước 2</b></td><td><b>Chọn Model AI &amp; Hệ sinh thái</b><br>(Tab 1)</td><td>Chọn Model AI phù hợp phần cứng GPU ở thanh đầu Tab 1 và tick các hệ sinh thái thực tế của dự án (trong tổng số 15 hệ sinh thái: OWASP, API, .NET, MSSQL, Nginx, HAProxy, Ubuntu, PostgreSQL, MySQL, MongoDB, Docker, MCP, Next.js, Node.js, WordPress).</td></tr>
+          <tr><td><b>Bước 3</b></td><td><b>Chạy Quét &amp; Theo dõi Log</b><br>(Tab 1, 3, 4, 5)</td><td>• <b>Quét nhanh (~30–60 giây):</b> Gitleaks (lộ mật khẩu) + Trivy (CVE thư viện) + Semgrep (35 rule 15 hệ sinh thái).<br>• <b>Kiểm toán AI sâu:</b> Chạy thêm AI 3-Agent phân tích lỗ hổng logic/0-day &amp; lọc báo động giả.<br>• <b>So sánh Bản vá (Tab 3):</b> Dán <code>git diff</code> giữa 2 phiên bản để săn lỗi hồi quy &amp; biến thể.<br>• <b>Bề mặt Web (Tab 5):</b> Dùng Katana + httpx soi từ ngoài vào tìm Shadow API / JS endpoints.</td></tr>
+          <tr><td><b>Bước 4</b></td><td><b>Đọc &amp; Xuất Báo cáo</b><br>(Tab 6)</td><td>Xem trực tiếp chi tiết lỗi trên trình duyệt và bấm <b>Xuất Báo Cáo PDF (Gửi Lãnh Đạo)</b> hoặc <b>Xuất Báo Cáo Excel (.xlsx — 5 Sheet)</b> để bàn giao cho đội Dev/Quản lý.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>2. Bảng Tư Vấn Chọn Model AI Cục Bộ (Theo Phần Cứng GPU)</h2>
+      <table>
+        <thead><tr><th>Model AI (Ollama Local)</th><th>Dung lượng</th><th>Tốc độ trên GPU 8 GB VRAM</th><th>Khuyến nghị sử dụng</th></tr></thead>
+        <tbody>
+          <tr><td><code>qwen3-vl:8b</code></td><td>~6.2 GB</td><td><b>Rất nhanh</b> (100% trong VRAM)</td><td><b>Mặc định hằng ngày</b> cho Quét sâu, 1-Line Push Audit &amp; Katana AI</td></tr>
+          <tr><td><code>deepseek-r1:14b</code></td><td>~9.0 GB</td><td>Khá nhanh</td><td><b>Model Phản biện (Critic)</b> lọc báo động giả &amp; So sánh Bản vá (Patch-Diff)</td></tr>
+          <tr><td><code>qwen3:30b-a3b</code> (MoE)</td><td>~18 GB</td><td>Trung bình (~3–5 phút/playbook)</td><td>Kiểm toán sâu mã nguồn lõi quan trọng (API, ERP, Auth, Payment)</td></tr>
+          <tr><td><code>gemma3:27b</code> (Dense)</td><td>~17 GB</td><td>Chậm (chạy qua RAM CPU)</td><td>Dùng khi chạy qua đêm hoặc tổng hợp báo cáo chuyên sâu</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>3. Lưu Ý Bảo Mật &amp; Mẹo Vận Hành</h2>
+      <ul style="line-height:1.8;color:#cbd5e1;padding-left:20px;margin:0">
+        <li><b>Chặn ClickFix của uBlock Origin khi bấm Sao chép:</b> Nếu trình duyệt hiện cảnh báo ClickFix khi copy lệnh PowerShell/Bash ở Tab 2, bạn có thể dùng ngay nút <b>Tải file <code>.ps1</code> / <code>.sh</code></b> (chạy trực tiếp không bị chặn) hoặc tắt uBlock riêng cho địa chỉ IP nội bộ của trang Audit.</li>
+        <li><b>Cuộn đọc Nhật ký (Tab 4):</b> Khi bạn lăn chuột lên để đọc log cũ, hệ thống tự động tạm dừng cuộn xuống; bấm nút <b>Xuống cuối log</b> để tiếp tục bám theo dòng mới nhất.</li>
+        <li><b>Quyền hạn quét:</b> Chỉ thực hiện kiểm toán và chạy Katana/SSH trên các máy chủ, ứng dụng và tên miền thuộc quyền sở hữu hợp pháp hoặc được cấp phép.</li>
+      </ul>
+    </div>
   </div>
 </div>
 <script>
@@ -515,6 +552,7 @@ async function loadStatus(){
 }
 async function loadCollectorInfo(){
   const r = await fetch('/api/collector-info'); const d = await r.json();
+  window._collectorToken = d.token;
   const base = window.location.origin;
   document.getElementById('pubKeyBox').textContent = d.public_key;
   document.getElementById('pubCmdBox').textContent = `mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo "${d.public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`;
@@ -542,9 +580,9 @@ async function loadProjects(){
       <td>${conn}</td>
       <td>${(p.stacks||[]).map(s=>`<span class="badge">${s}</span>`).join('')}</td>
       <td>
-        ${isSsh ? `<button class="btn btn-gray" onclick="testSsh('${p.id}')">Test SSH</button>` : ''}
-        <button class="btn btn-primary" onclick="triggerScan('${p.id}','quick')">${isSsh?'SSH Sync + ':''}Quick Scan</button>
-        <button class="btn btn-ai" onclick="triggerScan('${p.id}','full')">${isSsh?'SSH Sync + ':''}Full AI Audit</button>
+        ${isSsh ? `<button class="btn btn-gray" onclick="testSsh('${p.id}')">Kiểm tra SSH</button>` : ''}
+        <button class="btn btn-primary" onclick="triggerScan('${p.id}','quick')">${isSsh?'Đồng bộ SSH + ':''}Quét nhanh</button>
+        <button class="btn btn-ai" onclick="triggerScan('${p.id}','full')">${isSsh?'Đồng bộ SSH + ':''}Kiểm toán AI sâu</button>
         <button class="btn btn-gray" onclick="editProject('${p.id}')">Sửa</button>
         <button class="btn btn-danger" onclick="delProject('${p.id}')">Xóa</button>
       </td>
@@ -602,14 +640,36 @@ async function loadJobs(){
   const r = await fetch('/api/jobs'); const list = await r.json();
   document.getElementById('kpiJobs').textContent = list.filter(j=>j.status==='RUNNING').length;
   document.getElementById('jobsTable').innerHTML = list.map(j=>`
-    <tr><td><code>${j.id}</code></td><td>${j.title}</td><td class="st-${j.status}">${j.status}</td>
+    <tr><td><code>${j.id}</code></td><td>${j.title}</td><td class="st-${j.status}">${statusLabel(j.status)}</td>
     <td>${j.started}</td><td>${j.finished||'-'}</td>
     <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button>${j.status==='RUNNING'?`<button class="btn btn-danger" onclick="stopJob('${j.id}')">Dừng</button>`:`${j.steps?`<button class="btn btn-green" onclick="retryJob('${j.id}')">Chạy lại</button>`:''}<button class="btn btn-gray" onclick="delJob('${j.id}')">Xóa</button>`}</td></tr>`).join('');
 }
 async function stopJob(jid){ if(!confirm('Dừng tác vụ đang chạy?')) return; await fetch('/api/jobs/'+jid+'/stop', {method:'POST'}); loadJobs(); }
+let lastLogText = '';
+let lastLogJobId = '';
+function statusLabel(st){
+  return {RUNNING:'Đang chạy', COMPLETED:'Hoàn tất', FAILED:'Lỗi', INTERRUPTED:'Gián đoạn'}[st] || st;
+}
+function scrollLogBottom(){
+  const pre = document.getElementById('jobLog');
+  pre.scrollTop = pre.scrollHeight;
+}
+function downloadCollector(kind){
+  if(!window._collectorToken) return alert('Chưa tải xong token!');
+  const ep = kind === 'win' ? 'win-collector' : 'linux-collector';
+  window.open(`/download/${ep}?token=${encodeURIComponent(window._collectorToken)}&dl=1`, '_blank');
+}
 async function loadJobLog(jid){
   const r = await fetch('/api/jobs/'+jid+'/log'); const d = await r.json();
-  const pre = document.getElementById('jobLog'); pre.textContent = d.log || '(Chưa có output)'; pre.scrollTop = pre.scrollHeight;
+  const pre = document.getElementById('jobLog');
+  const txt = d.log || '(Chưa có dữ liệu nhật ký)';
+  const isNewJob = (jid !== lastLogJobId);
+  if(!isNewJob && txt === lastLogText) return;
+  const wasAtBottom = (pre.scrollHeight - pre.scrollTop - pre.clientHeight) < 45;
+  lastLogJobId = jid;
+  lastLogText = txt;
+  pre.textContent = txt;
+  if(isNewJob || wasAtBottom) pre.scrollTop = pre.scrollHeight;
 }
 async function loadReportFolders(){
   const r = await fetch('/api/reports'); const folders = await r.json();
@@ -719,7 +779,7 @@ def api_rotate_token(request: Request):
     return {"ok": True}
 
 @app.get("/download/win-collector", response_class=PlainTextResponse)
-def download_win_collector(request: Request, token: str = ""):
+def download_win_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
     script = f"""# AI Security Audit — Agentless Windows Security Collector (100% Read-Only)
@@ -779,10 +839,11 @@ $resp = Invoke-RestMethod -Uri "{server_base}/api/collector/upload?token={token}
 Write-Host ("[AI Security Audit] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
 Remove-Item $work, $zip -Recurse -Force -ErrorAction SilentlyContinue
 """
-    return script
+    hdrs = {"Content-Disposition": "attachment; filename=win_collector.ps1"} if dl else {}
+    return PlainTextResponse(script, headers=hdrs)
 
 @app.get("/download/linux-collector", response_class=PlainTextResponse)
-def download_linux_collector(request: Request, token: str = ""):
+def download_linux_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
     script = f"""#!/usr/bin/env bash
@@ -820,7 +881,8 @@ curl -fsS -X POST --data-binary @"$TGZ" -H "Content-Type: application/gzip" "{se
 echo ""
 rm -rf "$WORK" "$TGZ"
 """
-    return script
+    hdrs = {"Content-Disposition": "attachment; filename=linux_collector.sh"} if dl else {}
+    return PlainTextResponse(script, headers=hdrs)
 
 @app.post("/api/collector/upload")
 async def api_collector_upload(request: Request, token: str = "", host: str = "unknown", os: str = "windows"):
