@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tarfile
 import threading
+import time
 import urllib.request
 import zipfile
 from datetime import datetime
@@ -162,10 +163,15 @@ JOBS = load_jobs_store()
 def start_job(title: str, steps: list):
     jid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
     log_path = JOBS_DIR / f"{jid}.log"
+    now_ts = time.time()
+    total_steps = max(1, len(steps))
     JOBS[jid] = {
         "id": jid, "title": title, "status": "RUNNING",
         "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "finished": "", "log_file": str(log_path), "rc": None, "steps": steps,
+        "started_ts": now_ts, "finished": "", "finished_ts": None,
+        "progress": 5, "step_label": steps[0][0] if steps else "",
+        "total_steps": total_steps,
+        "log_file": str(log_path), "rc": None, "steps": steps,
     }
     save_jobs_store()
     def runner():
@@ -174,7 +180,11 @@ def start_job(title: str, steps: list):
             lf.write(f"[{datetime.now().strftime('%H:%M:%S')}] START: {title}\n")
             lf.flush()
             try:
-                for step_name, cmd_list in steps:
+                for idx, (step_name, cmd_list) in enumerate(steps):
+                    base = int((idx / total_steps) * 95)
+                    span = max(5, int((1 / total_steps) * 95))
+                    JOBS[jid]["step_label"] = f"Bước {idx+1}/{total_steps}: {step_name}"
+                    JOBS[jid]["progress"] = min(97, max(JOBS[jid].get("progress", 5), base + 3))
                     lf.write(f"\n>>> {step_name}\n")
                     lf.flush()
                     if JOBS[jid].get("stop_requested"):
@@ -188,25 +198,37 @@ def start_job(title: str, steps: list):
                     for line in proc.stdout:
                         lf.write(line)
                         lf.flush()
+                        m = re.search(r"\[(\d+)/(\d+)\]", line)
+                        if m:
+                            si, sn = int(m.group(1)), max(1, int(m.group(2)))
+                            sub_p = base + int(((si - 0.35) / sn) * span)
+                            JOBS[jid]["progress"] = min(98, max(JOBS[jid]["progress"], sub_p))
+                        elif "AI-Auditor" in line or "Playbook" in line or "Critic" in line:
+                            JOBS[jid]["progress"] = min(base + span - 2, JOBS[jid]["progress"] + 3)
                     rc = proc.wait()
                     if rc != 0:
                         lf.write(f"\n[STOPPED] Step '{step_name}' exited with code {rc}\n")
                         break
+                    JOBS[jid]["progress"] = min(98, base + span)
                 JOBS[jid]["rc"] = rc
                 JOBS[jid]["status"] = "COMPLETED" if rc == 0 else "FAILED"
+                if rc == 0:
+                    JOBS[jid]["progress"] = 100
+                    JOBS[jid]["step_label"] = "Hoàn tất"
                 lf.write(f"\n[{datetime.now().strftime('%H:%M:%S')}] FINAL EXIT CODE: {rc}\n")
             except Exception as ex:
                 JOBS[jid]["status"] = "FAILED"
                 lf.write(f"\nERROR: {ex}\n")
             JOBS[jid]["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            JOBS[jid]["finished_ts"] = time.time()
             save_jobs_store()
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v2.4")
+app = FastAPI(title="AI Security Audit Platform v2.5")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.4</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.5</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -216,7 +238,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v2.4</h1>
+<h1>AI Security Audit v2.5</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -225,7 +247,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.4 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.5 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -271,10 +293,18 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .modal-close{background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;padding:2px 8px;border-radius:6px}
 .modal-close:hover{background:#1e293b;color:#fff}
 .tip-box{background:#0f172a;border:1px solid #1e3a8a;border-radius:8px;padding:10px 14px;font-size:12.5px;color:#cbd5e1;line-height:1.6;margin:10px 0 14px}
+.gpu-pill{display:inline-flex;align-items:center;gap:7px;background:#0f172a;border:1px solid #334155;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;color:#86efac;margin-right:6px;white-space:nowrap}
+.gpu-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;display:inline-block;flex-shrink:0}
+.gpu-pill.busy{border-color:#0284c7;color:#fde047}
+.gpu-pill.busy .gpu-dot{background:#facc15;box-shadow:0 0 8px #facc15}
+.pbar{background:#1e293b;border-radius:999px;height:7px;width:100%;overflow:hidden;margin-top:4px;min-width:90px}
+.pbar-fill{height:100%;background:linear-gradient(90deg,#0284c7,#38bdf8);transition:width .35s}
+.pbar-fill.done{background:#22c55e}
+.pbar-fill.fail{background:#ef4444}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v2.4 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
-  <div><span id="ollamaBadge" class="badge">Checking Ollama...</span> <a href="/logout" style="color:#94a3b8;margin-left:14px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
+  <div><h1>AI Security Audit v2.5 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px"><span id="gpuPill" class="gpu-pill" title="Đang đọc thông số GPU..."><span class="gpu-dot"></span><span id="gpuText">GPU...</span></span><span id="ollamaBadge" class="badge">Đang kiểm tra Ollama...</span><a href="/logout" style="color:#94a3b8;margin-left:10px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
   <button class="active" onclick="showTab('projects',this)">1. Dự án &amp; Quét</button>
@@ -429,9 +459,9 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
   <div id="tab-jobs" class="hidden">
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Lịch sử Tác vụ &amp; Nhật ký trực tiếp</h2><button class="btn btn-danger" onclick="clearFinishedJobs()">Xóa toàn bộ lịch sử đã xong/lỗi</button></div>
-      <table><thead><tr><th>Mã tác vụ</th><th>Tên tác vụ</th><th>Trạng thái</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thao tác</th></tr></thead><tbody id="jobsTable"></tbody></table>
+      <table><thead><tr><th>Mã tác vụ</th><th>Tên tác vụ</th><th>Trạng thái</th><th style="min-width:140px">Tiến độ / Thời gian</th><th>Bắt đầu</th><th>Thao tác</th></tr></thead><tbody id="jobsTable"></tbody></table>
     </div>
-    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h2 style="margin:0">Nhật ký chạy trực tiếp (Live Log)</h2><button class="btn btn-gray" onclick="scrollLogBottom()">Xuống cuối log</button></div><pre id="jobLog">Chọn một tác vụ ở bảng trên để xem nhật ký chạy trực tiếp...</pre></div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h2 style="margin:0">Nhật ký chạy trực tiếp (Live Log)</h2><button class="btn btn-gray" onclick="scrollLogBottom()">Xuống cuối log</button></div><div id="liveProgWrap" class="hidden" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px"><span id="liveProgStep" style="color:#38bdf8;font-weight:600">Đang chạy...</span><span id="liveProgMeta" style="color:#fde047;font-weight:600">0% · 00:00</span></div><div class="pbar"><div id="liveProgFill" class="pbar-fill" style="width:0%"></div></div></div><pre id="jobLog">Chọn một tác vụ ở bảng trên để xem nhật ký chạy trực tiếp...</pre></div>
   </div>
 
   <div id="tab-katana" class="hidden">
@@ -611,8 +641,9 @@ function editProject(pid){
 async function init(){
   document.getElementById('stackBoxes').innerHTML = ALL_STACKS.map(s=>`<label><input type="checkbox" value="${s}" checked> ${s}</label>`).join('');
   toggleMode(); toggleAuth();
-  loadStatus(); loadProjects(); loadReportFolders(); loadCollectorInfo();
+  loadStatus(); loadTelemetry(); loadProjects(); loadReportFolders(); loadCollectorInfo();
   setInterval(()=>{ loadJobs(); if(activeJobId) loadJobLog(activeJobId); }, 4000);
+  setInterval(loadTelemetry, 3000);
 }
 async function loadStatus(){
   const r = await fetch('/api/status'); const d = await r.json();
@@ -717,13 +748,62 @@ async function runManualDiff(){
   const d = await r.json();
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
+function fmtDur(sec){
+  sec = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const pad = n => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+async function loadTelemetry(){
+  try {
+    const r = await fetch('/api/telemetry'); if(!r.ok) return;
+    const d = await r.json();
+    const pill = document.getElementById('gpuPill');
+    const txt = document.getElementById('gpuText');
+    if(!pill || !txt) return;
+    const job = d.active_job;
+    const isBusy = Boolean(job) || (d.gpu_ok && d.gpu_util >= 10);
+    pill.classList.toggle('busy', isBusy);
+    let label = '';
+    if(d.gpu_ok){
+      const stateTxt = isBusy ? `GPU ${d.gpu_util}%` : 'GPU Rảnh';
+      label = `${stateTxt} · VRAM ${d.vram_used_mib} MiB / ${d.vram_total_mib} MiB`;
+    } else {
+      label = isBusy ? 'Đang chạy quét' : 'Hệ thống Rảnh';
+    }
+    if(job){
+      label += ` · ${fmtDur(job.elapsed_sec)} (${job.progress}%)`;
+    }
+    txt.textContent = label;
+    const mInfo = (d.loaded_models||[]).map(m=>`${m.name} (${m.gpu_pct}% GPU)`).join(', ') || 'Chưa nạp model';
+    pill.title = (d.gpu_ok ? `GPU: ${d.gpu_util}% | VRAM: ${d.vram_used_mib}/${d.vram_total_mib} MiB | Nhiệt độ: ${d.gpu_temp}°C | ` : '') + `Ollama: ${mInfo}` + (job ? ` | Đang chạy: ${job.step_label}` : '');
+  } catch(e){}
+}
 async function loadJobs(){
   const r = await fetch('/api/jobs'); const list = await r.json();
   document.getElementById('kpiJobs').textContent = list.filter(j=>j.status==='RUNNING').length;
-  document.getElementById('jobsTable').innerHTML = list.map(j=>`
-    <tr><td><code>${j.id}</code></td><td>${j.title}</td><td class="st-${j.status}">${statusLabel(j.status)}</td>
-    <td>${j.started}</td><td>${j.finished||'-'}</td>
-    <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button>${j.status==='RUNNING'?`<button class="btn btn-danger" onclick="stopJob('${j.id}')">Dừng</button>`:`${j.steps?`<button class="btn btn-green" onclick="retryJob('${j.id}')">Chạy lại</button>`:''}<button class="btn btn-gray" onclick="delJob('${j.id}')">Xóa</button>`}</td></tr>`).join('');
+  const nowSec = Date.now() / 1000;
+  document.getElementById('jobsTable').innerHTML = list.map(j=>{
+    const pct = j.status === 'COMPLETED' ? 100 : (j.progress || (j.status==='RUNNING'?5:0));
+    const dur = j.started_ts ? ((j.status==='RUNNING' ? nowSec : (j.finished_ts||nowSec)) - j.started_ts) : 0;
+    const cls = j.status==='COMPLETED' ? 'done' : (j.status==='FAILED'||j.status==='INTERRUPTED' ? 'fail' : '');
+    return `<tr><td><code>${j.id}</code></td><td>${j.title}${j.status==='RUNNING'&&j.step_label?`<br><small style="color:#94a3b8">${j.step_label}</small>`:''}</td><td class="st-${j.status}">${statusLabel(j.status)}</td>
+    <td><div style="display:flex;justify-content:space-between;font-size:11.5px"><span>${pct}%</span><span style="color:#94a3b8">${dur>0?fmtDur(dur):'-'}</span></div><div class="pbar"><div class="pbar-fill ${cls}" style="width:${pct}%"></div></div></td>
+    <td>${j.started}</td>
+    <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button>${j.status==='RUNNING'?`<button class="btn btn-danger" onclick="stopJob('${j.id}')">Dừng</button>`:`${j.steps?`<button class="btn btn-green" onclick="retryJob('${j.id}')">Chạy lại</button>`:''}<button class="btn btn-gray" onclick="delJob('${j.id}')">Xóa</button>`}</td></tr>`;
+  }).join('');
+  const cur = list.find(x=>x.id===activeJobId) || list.find(x=>x.status==='RUNNING');
+  const wrap = document.getElementById('liveProgWrap');
+  if(cur && wrap){
+    wrap.classList.remove('hidden');
+    const pct = cur.status==='COMPLETED' ? 100 : (cur.progress || 5);
+    const dur = cur.started_ts ? ((cur.status==='RUNNING' ? nowSec : (cur.finished_ts||nowSec)) - cur.started_ts) : 0;
+    document.getElementById('liveProgStep').textContent = `${cur.title} — ${cur.step_label || statusLabel(cur.status)}`;
+    document.getElementById('liveProgMeta').textContent = `${pct}% · Đã chạy: ${fmtDur(dur)}`;
+    const fill = document.getElementById('liveProgFill');
+    fill.style.width = pct + '%';
+    fill.className = 'pbar-fill ' + (cur.status==='COMPLETED'?'done':(cur.status==='FAILED'||cur.status==='INTERRUPTED'?'fail':''));
+  }
 }
 async function stopJob(jid){ if(!confirm('Dừng tác vụ đang chạy?')) return; await fetch('/api/jobs/'+jid+'/stop', {method:'POST'}); loadJobs(); }
 let lastLogText = '';
@@ -851,6 +931,41 @@ def api_status(request: Request):
         }
     except Exception:
         return {"ollama_ok": False, "models": []}
+
+@app.get("/api/telemetry")
+def api_telemetry(request: Request):
+    require_auth(request)
+    gpu = {"gpu_ok": False, "gpu_util": 0, "vram_used_mib": 0, "vram_total_mib": 0, "gpu_temp": 0}
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu", "--format=csv,noheader,nounits"],
+            timeout=2, text=True, stderr=subprocess.DEVNULL
+        ).strip().splitlines()[0]
+        parts = [int(float(x.strip())) for x in out.split(",")]
+        gpu = {"gpu_ok": True, "gpu_util": parts[0], "vram_used_mib": parts[1], "vram_total_mib": parts[2], "gpu_temp": parts[3]}
+    except Exception:
+        pass
+    loaded = []
+    try:
+        ps = json.loads(urllib.request.urlopen(f"{OLLAMA_URL}/api/ps", timeout=1.5).read())
+        for m in ps.get("models", []):
+            sz = max(1, m.get("size", 0))
+            sv = m.get("size_vram", 0)
+            loaded.append({"name": m.get("name", ""), "gpu_pct": round((sv / sz) * 100)})
+    except Exception:
+        pass
+    active_job = None
+    now_ts = time.time()
+    for j in sorted(JOBS.values(), key=lambda x: x.get("started", ""), reverse=True):
+        if j.get("status") == "RUNNING":
+            active_job = {
+                "id": j["id"], "title": j["title"],
+                "step_label": j.get("step_label", ""),
+                "progress": j.get("progress", 5),
+                "elapsed_sec": int(now_ts - j.get("started_ts", now_ts)),
+            }
+            break
+    return {**gpu, "loaded_models": loaded, "active_job": active_job}
 
 @app.get("/api/collector-info")
 def api_collector_info(request: Request):
@@ -1355,6 +1470,7 @@ def api_stop_job(jid: str, request: Request):
             proc.terminate()
     j["status"] = "FAILED"
     j["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    j["finished_ts"] = time.time()
     save_jobs_store()
     return {"ok": True}
 
