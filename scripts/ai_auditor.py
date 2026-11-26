@@ -248,19 +248,51 @@ def run_patch_diff_audit(repo_dir: Path, report_dir: Path, old_ref: str, new_ref
     out_md.write_text(f"# Báo Cáo Patch-Diff & Variant Analysis (`{old_ref}` -> `{new_ref}`)\n\n{res}\n", encoding="utf-8")
     print(f"[AI-Auditor] SAVED: {out_md}", flush=True)
 
+def run_system_audit(repo_dir: Path, report_dir: Path):
+    print(f"[AI-Auditor] Running Live System & Config Security Audit with {AUDIT_MODEL}...", flush=True)
+    snap = repo_dir / "live_system_audit.md"
+    snap_txt = redact(snap.read_text(encoding="utf-8", errors="ignore"))[:22000] if snap.exists() else "No live_system_audit.md found."
+    semgrep_sum = load_semgrep_summary(report_dir / "03_semgrep_sast.json")
+    sys_prompt = (
+        "Bạn là Chuyên gia Bảo mật Hệ thống & Hạ tầng (Principal SecOps Engineer). "
+        "Hãy phân tích báo cáo hiện trạng hệ thống (OS/Hotfix, Firewall, Defender, Listening Ports, Local Admins, Installed Software, IIS/SQL/Docker) "
+        "và trả về Báo Cáo Kiểm Toán Bảo Mật bằng tiếng Việt rõ ràng, chuyên nghiệp gồm:
+"
+        "1) Đánh giá tổng quan mức độ an toàn (Critical / High / Medium / Low)
+"
+        "2) Danh sách các lỗ hổng / điểm yếu cụ thể tìm thấy (cổng mở nguy hiểm, Firewall tắt, bản vá thiếu, phần mềm cũ, cấu hình RDP/SMB/SQL/IIS yếu)
+"
+        "3) Kế hoạch khắc phục & Hardening ưu tiên theo thứ tự P0 -> P1 -> P2 (kèm lệnh cấu hình cụ thể)."
+    )
+    user_prompt = f"### Hiện trạng hệ thống thực tế:\n{snap_txt}\n\n### Kết quả Semgrep SAST:\n{semgrep_sum[:3000]}"
+    res = call_ollama(AUDIT_MODEL, sys_prompt, user_prompt, timeout=900)
+    out_md = report_dir / "05_ai_deep_audit_report.md"
+    out_md.write_text(
+        f"# Báo Cáo AI System Security Audit (100% On-Premise)\n\n- **Model:** `{AUDIT_MODEL}`\n\n---\n\n{res}\n",
+        encoding="utf-8"
+    )
+    print(f"[AI-Auditor] SAVED: {out_md}", flush=True)
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["full", "diff"], required=True)
+    ap.add_argument("--mode", choices=["full", "diff", "system"], required=True)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--reports", required=True)
     ap.add_argument("--old-ref", default="HEAD~1")
     ap.add_argument("--new-ref", default="HEAD")
+    ap.add_argument("--audit-model", default="")
+    ap.add_argument("--critic-model", default="")
+    global AUDIT_MODEL, CRITIC_MODEL
     args = ap.parse_args()
+    if args.audit_model: AUDIT_MODEL = args.audit_model
+    if args.critic_model: CRITIC_MODEL = args.critic_model
     repo_dir = Path(args.repo)
     report_dir = Path(args.reports)
     report_dir.mkdir(parents=True, exist_ok=True)
     if args.mode == "full":
         run_full_audit(repo_dir, report_dir)
+    elif args.mode == "system":
+        run_system_audit(repo_dir, report_dir)
     else:
         run_patch_diff_audit(repo_dir, report_dir, args.old_ref, args.new_ref)
 

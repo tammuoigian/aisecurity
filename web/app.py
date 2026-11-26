@@ -131,6 +131,7 @@ def load_pkey_any(key_file: str):
     raise ValueError("Unsupported private key format")
 
 JOBS = {}
+JOB_PROCS = {}
 
 def start_job(title: str, steps: list):
     jid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
@@ -149,10 +150,14 @@ def start_job(title: str, steps: list):
                 for step_name, cmd_list in steps:
                     lf.write(f"\n>>> {step_name}\n")
                     lf.flush()
+                    if JOBS[jid].get("stop_requested"):
+                        rc = -1
+                        break
                     proc = subprocess.Popen(
                         cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                         text=True, encoding="utf-8", errors="replace"
                     )
+                    JOB_PROCS[jid] = proc
                     for line in proc.stdout:
                         lf.write(line)
                         lf.flush()
@@ -170,10 +175,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v2.2")
+app = FastAPI(title="AI Security Audit Platform v2.2.1")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2.1</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -183,7 +188,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v2.2</h1>
+<h1>AI Security Audit v2.2.1</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -192,7 +197,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2.1 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -231,7 +236,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .keybox{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;color:#34d399;margin:6px 0}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v2.2 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Stacks</span></h1></div>
+  <div><h1>AI Security Audit v2.2.1 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Stacks</span></h1></div>
   <div><span id="ollamaBadge" class="badge">Checking Ollama...</span> <a href="/logout" style="color:#94a3b8;margin-left:14px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -252,6 +257,10 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
     </div>
     <div class="card">
       <h2>Danh sách Dự án &amp; Máy chủ (1-Click Agentless Audit)</h2>
+      <div class="row" style="margin-bottom:14px;background:#0f172a;padding:10px 14px;border-radius:8px;border:1px solid #1e293b">
+        <div><label>Model AI quét chính (RTX 3050 8GB khuyến nghị: <b>qwen3-vl:8b</b> nhanh, <b>qwen3:30b-a3b</b> sâu)</label><select id="auditModelSel"><option value="qwen3-vl:8b">qwen3-vl:8b (Nhẹ, nhanh nhất 8GB VRAM)</option></select></div>
+        <div><label>Model AI phản biện (Critic / Lọc lỗi giả)</label><select id="criticModelSel"><option value="deepseek-r1:14b">deepseek-r1:14b</option></select></div>
+      </div>
       <table><thead><tr><th>Dự án / Chế độ</th><th>Kết nối / Nguồn</th><th>Hệ sinh thái</th><th>Hành động</th></tr></thead><tbody id="projTable"></tbody></table>
     </div>
     <div class="card">
@@ -285,7 +294,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
           <div id="box-pass" class="hidden"><label>Mật khẩu SSH / Sudo</label><input id="sPass" type="password" placeholder="Để trống nếu giữ nguyên mật khẩu cũ khi Sửa"></div>
         </div>
         <div id="box-ckey" class="hidden" style="margin-bottom:12px">
-          <label>Dán nội dung Private Key (OpenSSH / RSA / ECDSA):</label>
+          <label>Dán nội dung Private Key (BEGIN OPENSSH/RSA PRIVATE KEY):</label>
           <textarea id="sCustomKey" placeholder="Paste SSH Private Key here..."></textarea>
         </div>
         <div style="margin-bottom:12px">
@@ -391,6 +400,7 @@ function showTab(name, btn){
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
+  if(name==='projects') loadProjects();
   if(name==='jobs') loadJobs();
   if(name==='reports') loadReportFolders();
   if(name==='sshkey') loadCollectorInfo();
@@ -451,6 +461,16 @@ async function init(){
 async function loadStatus(){
   const r = await fetch('/api/status'); const d = await r.json();
   document.getElementById('ollamaBadge').textContent = d.ollama_ok ? `Ollama Ready (${d.models.length} models)` : 'Ollama Offline';
+  if(d.ollama_ok && d.models.length){
+    const opts = d.models.map(m=>`<option value="${m}">${m}</option>`).join('');
+    ['auditModelSel','criticModelSel','diffModel'].forEach(id=>{
+      const el = document.getElementById(id); if(!el) return;
+      el.innerHTML = opts;
+      if(id==='auditModelSel' && d.models.includes('qwen3-vl:8b')) el.value = 'qwen3-vl:8b';
+      if(id==='criticModelSel' && d.models.includes('deepseek-r1:14b')) el.value = 'deepseek-r1:14b';
+      if(id==='diffModel' && d.models.includes('qwen3-vl:8b')) el.value = 'qwen3-vl:8b';
+    });
+  }
 }
 async function loadCollectorInfo(){
   const r = await fetch('/api/collector-info'); const d = await r.json();
@@ -524,7 +544,7 @@ async function testSsh(pid){
   alert(d.ok ? ('KẾT NỐI SSH THÀNH CÔNG!\n' + d.info) : ('LỖI KẾT NỐI SSH:\n' + d.error));
 }
 async function triggerScan(projectId, mode){
-  const r = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({project_id:projectId, mode})});
+  const r = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({project_id:projectId, mode, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b', critic_model:(document.getElementById('criticModelSel')||{}).value||'deepseek-r1:14b'})});
   const d = await r.json();
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
@@ -543,8 +563,9 @@ async function loadJobs(){
   document.getElementById('jobsTable').innerHTML = list.map(j=>`
     <tr><td><code>${j.id}</code></td><td>${j.title}</td><td class="st-${j.status}">${j.status}</td>
     <td>${j.started}</td><td>${j.finished||'-'}</td>
-    <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button></td></tr>`).join('');
+    <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button>${j.status==='RUNNING'?`<button class="btn btn-danger" onclick="stopJob('${j.id}')">Dừng (Stop)</button>`:''}</td></tr>`).join('');
 }
+async function stopJob(jid){ if(!confirm('Dừng tác vụ đang chạy?')) return; await fetch('/api/jobs/'+jid+'/stop', {method:'POST'}); loadJobs(); }
 async function loadJobLog(jid){
   const r = await fetch('/api/jobs/'+jid+'/log'); const d = await r.json();
   const pre = document.getElementById('jobLog'); pre.textContent = d.log || '(Chưa có output)'; pre.scrollTop = pre.scrollHeight;
@@ -581,7 +602,7 @@ async function runKatanaScan(){
   const depth = parseInt(document.getElementById('kDepth').value || '3');
   const with_ai = document.getElementById('kAi').value === 'yes';
   if(!url.startsWith('http')) return alert('Vui lòng nhập URL hợp lệ bắt đầu bằng http:// hoặc https://');
-  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai})});
+  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
   const d = await r.json();
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
@@ -673,6 +694,14 @@ Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server' -ErrorAction Si
     [void]$sb.AppendLine("Instance=$($_.PSChildName) Edition=$($p.Edition) Version=$($p.Version) PatchLevel=$($p.PatchLevel)")
   }}
 }}
+
+[void]$sb.AppendLine("`n## 7. RDP / SMB / WinRM Security & Scheduled Tasks")
+$rdp = (Get-ItemProperty 'HKLM:\System\CurrentControlSet\\Control\\Terminal Server' -EA 0).fDenyTSConnections
+$nla = (Get-ItemProperty 'HKLM:\System\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -EA 0).UserAuthentication
+$smb1 = (Get-SmbServerConfiguration -EA 0).EnableSMB1Protocol
+[void]$sb.AppendLine("RDP_Disabled=$rdp | RDP_NLA=$nla | SMBv1_Enabled=$smb1")
+[void]$sb.AppendLine("`n## 8. Installed Software (Top 40 for CVE Check)")
+[void]$sb.AppendLine((Get-ItemProperty 'HKLM:\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -EA 0 | Where-Object {{ $_.DisplayName }} | Select-Object -First 40 DisplayName, DisplayVersion, Publisher | Sort-Object DisplayName | Out-String))
 
 Set-Content -Path (Join-Path $work 'live_system_audit.md') -Value $sb.ToString() -Encoding UTF8
 if (Test-Path 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config') {{
@@ -777,11 +806,14 @@ async def api_collector_upload(request: Request, token: str = "", host: str = "u
         f"mkdir -p '{wsl_rep}' && "
         f"([ -f '{wsl_src}/live_system_audit.md' ] && cp '{wsl_src}/live_system_audit.md' '{wsl_rep}/00_live_system_audit.md' || true) && "
         f"gitleaks detect --source '{wsl_src}' --no-git --report-format json --report-path '{wsl_rep}/01_gitleaks_secrets.json' --exit-code 0 || true; "
-        f"trivy fs --scanners vuln,misconfig --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
-        f"semgrep scan --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
+        f"trivy fs --timeout 5m --skip-dirs node_modules,.next,vendor,.git,uploads,cache --scanners vuln,misconfig --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
+        f"semgrep scan --timeout 300 --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
         f"echo 'PUSH AUDIT COMPLETE -> F:\\ERP-Audit-Lab\\reports\\{tag}'"
     )
-    jid = start_job(f"1-Line Push Audit: {host}", [("SAST + Secret + SCA (15 Stacks)", ["wsl", "-u", "root", "bash", "-c", bash_cmd])])
+    jid = start_job(f"1-Line Push Audit: {host}", [
+        ("SAST + Secret + SCA (15 Stacks)", ["wsl", "-u", "root", "bash", "-c", bash_cmd]),
+        ("AI System Security Audit (qwen3-vl:8b)", [WIN_PY, r"F:\ERP-Audit-Lab\scripts\ai_auditor.py", "--mode", "system", "--repo", str(dest), "--reports", rf"F:\ERP-Audit-Lab\reports\{tag}", "--audit-model", "qwen3-vl:8b"]),
+    ])
     return {"ok": True, "project_id": pid, "job_id": jid, "report_tag": tag}
 
 @app.get("/api/projects")
@@ -918,16 +950,16 @@ async def api_scan(request: Request):
         f"echo '[1/3] Gitleaks Secret Scan...' && "
         f"gitleaks detect --source '{wsl_src}' --no-git --report-format json --report-path '{wsl_rep}/01_gitleaks_secrets.json' --exit-code 0 || true; "
         f"echo '[2/3] Trivy SCA & Misconfig...' && "
-        f"trivy fs --scanners vuln,misconfig --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
+        f"trivy fs --timeout 5m --skip-dirs node_modules,.next,vendor,.git,uploads,cache --scanners vuln,misconfig --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
         f"echo '[3/3] Semgrep SAST (15 Stacks)...' && "
-        f"semgrep scan --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
+        f"semgrep scan --timeout 300 --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
         f"echo 'SCAN COMPLETE -> F:\\ERP-Audit-Lab\\reports\\{tag}'"
     )
     steps.append(("SAST + Secret + SCA (15 Stacks)", ["wsl", "-u", "root", "bash", "-c", bash_sast]))
     if mode == "full":
         steps.append((
             "AI 3-Agent Deep Audit (Ollama Local)",
-            [WIN_PY, r"F:\ERP-Audit-Lab\scripts\ai_auditor.py", "--mode", "full", "--repo", proj["path"], "--reports", rf"F:\ERP-Audit-Lab\reports\{tag}"]
+            [WIN_PY, r"F:\ERP-Audit-Lab\scripts\ai_auditor.py", "--mode", "full", "--repo", proj["path"], "--reports", rf"F:\ERP-Audit-Lab\reports\{tag}", "--audit-model", body.get("audit_model", "qwen3-vl:8b"), "--critic-model", body.get("critic_model", "deepseek-r1:14b")]
         ))
         jid = start_job(f"Full AI Audit: {proj['name']}", steps)
     else:
@@ -1048,7 +1080,7 @@ async def api_katana_scan(request: Request):
             f"import json, re, urllib.request; from pathlib import Path; "
             f"rep = Path(r'F:\\ERP-Audit-Lab\\reports\\{tag}'); "
             f"surf = (rep / '07_web_surface_katana.md').read_text(encoding='utf-8', errors='ignore'); "
-            f"payload = {{'model':'qwen3:30b-a3b','stream':False,'options':{{'temperature':0.1,'num_ctx':16384}},'messages':["
+            f"payload = {{'model':body.get('audit_model','qwen3-vl:8b'),'stream':False,'options':{{'temperature':0.1,'num_ctx':16384}},'messages':["
             f"{{'role':'system','content':'Ban la Chuyen gia AppSec. Phan tich danh sach endpoint & fingerprint tu Katana/httpx de chi ra Shadow API, duong dan quan tri/nhay cam lo ra ngoai, thieu security header, va de xuat hardening/ModSecurity rule bang tieng Viet.'}},"
             f"{{'role':'user','content':surf[:24000]}}]}}; "
             f"req = urllib.request.Request('{OLLAMA_URL}/api/chat', data=json.dumps(payload).encode(), headers={{'Content-Type':'application/json'}}, method='POST'); "
@@ -1077,3 +1109,21 @@ def api_export_report(folder: str, fmt: str, request: Request):
         report_exporter.export_pdf(d, out)
         return FileResponse(str(out), filename=out.name, media_type="application/pdf")
     raise HTTPException(400, "Format must be pdf or excel")
+
+
+@app.post("/api/jobs/{jid}/stop")
+def api_stop_job(jid: str, request: Request):
+    require_auth(request)
+    j = JOBS.get(jid)
+    if not j:
+        raise HTTPException(404, "Job not found")
+    j["stop_requested"] = True
+    proc = JOB_PROCS.get(jid)
+    if proc and proc.poll() is None:
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        except Exception:
+            proc.terminate()
+    j["status"] = "FAILED"
+    j["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {"ok": True}

@@ -10,9 +10,18 @@ from pathlib import Path
 import paramiko
 
 EXCLUDE_ARGS = (
-    "--exclude='node_modules' --exclude='.next' --exclude='vendor' "
-    "--exclude='wp-content/uploads' --exclude='.git' --exclude='logs' "
-    "--exclude='__pycache__' --exclude='.venv' --exclude='venv' --exclude='dist' --exclude='build' "
+    "--exclude='node_modules' --exclude='*/node_modules' --exclude='*/node_modules/*' "
+    "--exclude='.next' --exclude='*/.next' --exclude='vendor' --exclude='*/vendor' "
+    "--exclude='wp-content/uploads' --exclude='*/wp-content/uploads' --exclude='*/wp-content/cache' "
+    "--exclude='.git' --exclude='*/.git' --exclude='logs' --exclude='*/logs' "
+    "--exclude='.cache' --exclude='*/.cache' --exclude='.npm' --exclude='*/.npm' "
+    "--exclude='.nvm' --exclude='*/.nvm' --exclude='.local' --exclude='*/.local' "
+    "--exclude='.cargo' --exclude='*/.cargo' --exclude='site-packages' --exclude='*/site-packages' "
+    "--exclude='__pycache__' --exclude='*/__pycache__' --exclude='.venv' --exclude='*/.venv' "
+    "--exclude='venv' --exclude='*/venv' --exclude='dist' --exclude='*/dist' "
+    "--exclude='build' --exclude='*/build' --exclude='storage' --exclude='*/storage' "
+    "--exclude='uploads' --exclude='*/uploads' --exclude='tmp' --exclude='*/tmp' "
+    "--exclude='*.min.js' --exclude='*.map' "
     "--exclude='*.jpg' --exclude='*.jpeg' --exclude='*.png' --exclude='*.gif' --exclude='*.webp' "
     "--exclude='*.mp4' --exclude='*.mov' --exclude='*.avi' --exclude='*.zip' --exclude='*.tar.gz' "
     "--exclude='*.rar' --exclude='*.7z' --exclude='*.bak' --exclude='*.sql' --exclude='*.log' "
@@ -104,12 +113,20 @@ def safe_extract_tar_bytes(raw_bytes: bytes, dest_dir: Path):
         return 0
     dest_dir.mkdir(parents=True, exist_ok=True)
     cnt = 0
+    total_bytes = 0
+    SKIP_PARTS = {"node_modules", ".next", "vendor", ".git", ".cache", ".npm", ".nvm", ".local", "site-packages", "__pycache__", "uploads", "storage"}
     try:
         with tarfile.open(fileobj=io.BytesIO(raw_bytes), mode="r:gz") as tf:
             for m in tf.getmembers():
-                if not m.isfile() or m.size > 3 * 1024 * 1024:
+                if cnt >= 15000 or total_bytes >= 150 * 1024 * 1024:
+                    print("  [INFO] Reached safety cap (15,000 files / 150 MB) — stopping extract.", flush=True)
+                    break
+                if not m.isfile() or m.size > 2 * 1024 * 1024:
                     continue
                 rel = m.name.lstrip("/").replace("..", "__")
+                if any(part in SKIP_PARTS for part in rel.split("/")):
+                    continue
+                total_bytes += m.size
                 target = dest_dir / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
                 f = tf.extractfile(m)
