@@ -423,7 +423,19 @@ const ALL_STACKS = ["owasp","api","dotnet","mssql","nginx","haproxy","ubuntu","p
 let activeJobId = null;
 let cachedProjects = [];
 
-function copyText(id){ navigator.clipboard.writeText(document.getElementById(id).textContent); alert('Đã copy!'); }
+function copyText(id){
+  const txt = document.getElementById(id).textContent;
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(txt).then(()=>alert('Đã copy!')).catch(()=>fallbackCopy(txt));
+  } else { fallbackCopy(txt); }
+}
+function fallbackCopy(txt){
+  const ta = document.createElement('textarea');
+  ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand('copy'); alert('Đã copy!'); } catch(e) { prompt('Copy thủ công (Ctrl+C):', txt); }
+  document.body.removeChild(ta);
+}
 function showTab(name, btn){
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
