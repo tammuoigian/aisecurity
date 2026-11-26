@@ -203,10 +203,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v2.3")
+app = FastAPI(title="AI Security Audit Platform v2.4")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.3</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.4</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -216,7 +216,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v2.3</h1>
+<h1>AI Security Audit v2.4</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -225,7 +225,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.3 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.4 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -262,9 +262,18 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .st-RUNNING{color:#facc15;font-weight:700} .st-COMPLETED{color:#4ade80;font-weight:700} .st-FAILED{color:#f87171;font-weight:700} .st-INTERRUPTED{color:#fb923c;font-weight:700}
 .hidden{display:none}
 .keybox{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;color:#34d399;margin:6px 0}
+.modal-bg{position:fixed;inset:0;background:rgba(2,6,23,.78);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.modal-bg.hidden{display:none}
+.modal-box{background:#111827;border:1px solid #334155;border-radius:12px;padding:22px;width:100%;max-width:780px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,.65)}
+.modal-box.sm{max-width:540px}
+.modal-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid #1e293b;padding-bottom:10px}
+.modal-hd h2{margin:0;font-size:16px;color:#38bdf8}
+.modal-close{background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;padding:2px 8px;border-radius:6px}
+.modal-close:hover{background:#1e293b;color:#fff}
+.tip-box{background:#0f172a;border:1px solid #1e3a8a;border-radius:8px;padding:10px 14px;font-size:12.5px;color:#cbd5e1;line-height:1.6;margin:10px 0 14px}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v2.3 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div><h1>AI Security Audit v2.4 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div><span id="ollamaBadge" class="badge">Checking Ollama...</span> <a href="/logout" style="color:#94a3b8;margin-left:14px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -285,22 +294,28 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
       <div class="card"><div class="kpi" id="kpiJobs">0</div><div class="kpi-lbl">Tác vụ đang chạy</div></div>
     </div>
     <div class="card">
-      <h2>Danh sách Dự án &amp; Máy chủ (Kiểm toán 1-Click)</h2>
-      <div class="row" style="margin-bottom:14px;background:#0f172a;padding:10px 14px;border-radius:8px;border:1px solid #1e293b">
-        <div><label>Model AI quét chính (RTX 3050 8GB khuyến nghị: <b>qwen3-vl:8b</b> nhanh, <b>qwen3:30b-a3b</b> sâu)</label><select id="auditModelSel"><option value="qwen3-vl:8b">qwen3-vl:8b (Nhẹ, nhanh nhất 8GB VRAM)</option></select></div>
-        <div><label>Model AI phản biện (Critic / Lọc lỗi giả)</label><select id="criticModelSel"><option value="deepseek-r1:14b">deepseek-r1:14b</option></select></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <h2 style="margin:0">Danh sách Dự án &amp; Máy chủ (Kiểm toán 1-Click)</h2>
+        <button class="btn btn-green" style="padding:8px 14px;font-size:13px" onclick="openCreateProjectModal()">+ Tạo dự án mới</button>
       </div>
       <table><thead><tr><th>Dự án / Chế độ</th><th>Kết nối / Nguồn</th><th>Hệ sinh thái</th><th>Hành động</th></tr></thead><tbody id="projTable"></tbody></table>
     </div>
-    <div class="card">
-      <h2 id="formTitle">+ Thêm Máy chủ (Agentless SSH) hoặc Thư mục Local</h2>
+  </div>
+
+  <!-- Modal Tạo / Sửa Dự án -->
+  <div id="projectModal" class="modal-bg hidden" onclick="if(event.target===this)closeProjectModal()">
+    <div class="modal-box">
+      <div class="modal-hd">
+        <h2 id="formTitle">+ Tạo Dự án / Máy chủ mới</h2>
+        <button class="modal-close" onclick="closeProjectModal()" title="Đóng">&times;</button>
+      </div>
       <input type="hidden" id="editId" value="">
       <div class="row">
         <div><label>Tên dự án / Máy chủ</label><input id="pName" placeholder="VD: My-Server-01"></div>
-        <div><label>Chế độ quét</label>
+        <div><label>Chế độ kết nối</label>
           <select id="pMode" onchange="toggleMode()">
             <option value="ssh">Agentless Remote Server (SSH — Tự động quét toàn bộ hệ thống)</option>
-            <option value="local">Local Folder trên <AUDIT_SERVER></option>
+            <option value="local">Thư mục Local trên máy chủ Audit</option>
           </select>
         </div>
       </div>
@@ -324,23 +339,53 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
         </div>
         <div id="box-ckey" class="hidden" style="margin-bottom:12px">
           <label>Dán nội dung Private Key (BEGIN OPENSSH/RSA PRIVATE KEY):</label>
-          <textarea id="sCustomKey" placeholder="Paste SSH Private Key here..."></textarea>
+          <textarea id="sCustomKey" placeholder="Dán SSH Private Key tại đây..."></textarea>
         </div>
         <div style="margin-bottom:12px">
-          <label>Đường dẫn mã nguồn cụ thể (<b>ĐỂ TRỐNG = MẶC ĐỊNH TỰ ĐỘNG QUÉT TOÀN BỘ HỆ THỐNG</b>: OS + Firewall + Docker + Nginx/DB/MongoDB + Tự dò toàn bộ app trong /var/www, /opt, /srv, /home, /root):</label>
-          <input id="sPaths" placeholder="Để trống để Auto-Discover toàn hệ thống — hoặc nhập đường dẫn cụ thể VD: /var/www/app1, /opt/mcp">
+          <label>Đường dẫn mã nguồn cụ thể (<b>ĐỂ TRỐNG = TỰ ĐỘNG QUÉT TOÀN BỘ HỆ THỐNG</b>: OS + Firewall + Docker + Nginx/DB/MongoDB + Tự dò ứng dụng trong /var/www, /opt, /srv, /home, /root):</label>
+          <input id="sPaths" placeholder="Để trống để Auto-Discover toàn hệ thống — hoặc nhập đường dẫn VD: /var/www/app1, /opt/mcp">
         </div>
       </div>
 
       <div id="box-local" class="hidden" style="margin-bottom:12px">
-        <label>Đường dẫn thư mục có sẵn trên <AUDIT_SERVER></label>
+        <label>Đường dẫn thư mục mã nguồn trên máy chủ Audit</label>
         <input id="pPath" placeholder="VD: F:\ERP-Audit-Lab\repo">
       </div>
 
       <label>Chọn hệ sinh thái cần quét (15 hệ sinh thái):</label>
       <div class="stacks" id="stackBoxes"></div>
-      <button class="btn btn-green" onclick="saveProject()">Lưu Dự án / Máy chủ</button>
-      <button class="btn btn-gray hidden" id="btnCancelEdit" onclick="resetForm()">Hủy sửa</button>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+        <button class="btn btn-gray" onclick="closeProjectModal()">Hủy</button>
+        <button class="btn btn-green" onclick="saveProject()">Lưu Dự án / Máy chủ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Chọn Model AI khi bắt đầu Kiểm toán AI sâu -->
+  <div id="scanModelModal" class="modal-bg hidden" onclick="if(event.target===this)closeScanModal()">
+    <div class="modal-box sm">
+      <div class="modal-hd">
+        <h2 id="scanModalTitle">Chọn Model AI để Kiểm toán sâu</h2>
+        <button class="modal-close" onclick="closeScanModal()" title="Đóng">&times;</button>
+      </div>
+      <input type="hidden" id="scanTargetId" value="">
+      <div class="tip-box">
+        <b>Lưu ý phần cứng (GPU 8 GB VRAM + 32 GB RAM):</b><br>
+        • Model <b>&lt; 8 GB</b> (như <code>qwen3-vl:8b</code>, <code>qwen2.5vl:7b</code>) nạp <b>100% vào GPU</b> &rarr; tốc độ nhanh nhất.<br>
+        • Model <b>&gt; 8 GB</b> (<code>deepseek-r1:14b</code>, <code>qwen3:30b-a3b</code>, <code>gemma3:27b</code>) chạy lai <b>GPU + 32 GB RAM</b> &rarr; phân tích sâu hơn nhưng tốn thời gian hơn.
+      </div>
+      <div style="margin-bottom:12px">
+        <label>Model AI quét chính (Phân tích lỗ hổng &amp; viết báo cáo)</label>
+        <select id="auditModelSel"><option value="qwen3-vl:8b">qwen3-vl:8b</option></select>
+      </div>
+      <div style="margin-bottom:14px">
+        <label>Model AI phản biện (Critic — Lọc báo động giả)</label>
+        <select id="criticModelSel"><option value="deepseek-r1:14b">deepseek-r1:14b</option></select>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn btn-gray" onclick="closeScanModal()">Hủy</button>
+        <button class="btn btn-ai" onclick="confirmAiScan()">Bắt đầu Kiểm toán AI</button>
+      </div>
     </div>
   </div>
 
@@ -384,7 +429,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
   <div id="tab-jobs" class="hidden">
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Lịch sử Tác vụ &amp; Nhật ký trực tiếp</h2><button class="btn btn-danger" onclick="clearFinishedJobs()">Xóa toàn bộ lịch sử đã xong/lỗi</button></div>
-      <table><thead><tr><th>Job ID</th><th>Tên tác vụ</th><th>Trạng thái</th><th>Bắt đầu</th><th>Kết thúc</th><th>Log</th></tr></thead><tbody id="jobsTable"></tbody></table>
+      <table><thead><tr><th>Mã tác vụ</th><th>Tên tác vụ</th><th>Trạng thái</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thao tác</th></tr></thead><tbody id="jobsTable"></tbody></table>
     </div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h2 style="margin:0">Nhật ký chạy trực tiếp (Live Log)</h2><button class="btn btn-gray" onclick="scrollLogBottom()">Xuống cuối log</button></div><pre id="jobLog">Chọn một tác vụ ở bảng trên để xem nhật ký chạy trực tiếp...</pre></div>
   </div>
@@ -397,9 +442,10 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
         <div><label>URL mục tiêu được phép quét (VD: https://app.domain.vn)</label><input id="kUrl" placeholder="https://..."></div>
         <div><label>Tên đợt quét</label><input id="kName" value="web-surface"></div>
       </div>
-      <div class="row">
-        <div><label>Độ sâu crawl (mặc định 3)</label><input id="kDepth" value="3"></div>
-        <div><label>Phân tích chéo bằng AI Local (Shadow API / Exposure)?</label><select id="kAi"><option value="yes">Có — Phân tích bằng Ollama Local (qwen3:30b-a3b)</option><option value="no">Không — Chỉ chạy Katana + httpx (~20 giây)</option></select></div>
+      <div class="row3">
+        <div><label>Độ sâu crawl (1–5, mặc định 3)</label><input id="kDepth" value="3"></div>
+        <div><label>Phân tích chéo bằng AI Local (Shadow API)?</label><select id="kAi"><option value="yes">Có — Phân tích bằng Ollama Local</option><option value="no">Không — Chỉ chạy Katana + httpx (~20 giây)</option></select></div>
+        <div><label>Chọn Model AI phân tích Web Surface</label><select id="kModel"><option value="qwen3-vl:8b">qwen3-vl:8b</option></select></div>
       </div>
       <button class="btn btn-ai" onclick="runKatanaScan()">Chạy Khám phá Bề mặt Web</button>
     </div>
@@ -426,30 +472,37 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
       <table>
         <thead><tr><th style="width:12%">Bước</th><th style="width:26%">Thao tác trên Web</th><th>Mô tả &amp; Kết quả đạt được</th></tr></thead>
         <tbody>
-          <tr><td><b>Bước 1</b></td><td><b>Thêm Dự án / Máy chủ</b><br>(Tab 1 hoặc Tab 2)</td><td>Chọn 1 trong 3 cách:<br>• <b>Agentless SSH</b> (Linux/Windows mở SSH): nhập IP, User, SSH Key/Password. <i>Để trống ô đường dẫn</i> để hệ thống tự dò toàn bộ OS, Firewall, Docker, DB và mã nguồn sạch.<br>• <b>Thu thập 1-Dòng</b> (Tab 2): dùng cho Windows/Linux không mở SSH. Tải file <code>.ps1</code>/<code>.sh</code> hoặc copy lệnh chạy 1 dòng &rarr; tự đẩy dữ liệu về và tự quét.<br>• <b>Thư mục Local</b>: trỏ thẳng tới thư mục code trên máy chủ Audit.</td></tr>
-          <tr><td><b>Bước 2</b></td><td><b>Chọn Model AI &amp; Hệ sinh thái</b><br>(Tab 1)</td><td>Chọn Model AI phù hợp phần cứng GPU ở thanh đầu Tab 1 và tick các hệ sinh thái thực tế của dự án (trong tổng số 15 hệ sinh thái: OWASP, API, .NET, MSSQL, Nginx, HAProxy, Ubuntu, PostgreSQL, MySQL, MongoDB, Docker, MCP, Next.js, Node.js, WordPress).</td></tr>
-          <tr><td><b>Bước 3</b></td><td><b>Chạy Quét &amp; Theo dõi Log</b><br>(Tab 1, 3, 4, 5)</td><td>• <b>Quét nhanh (~30–60 giây):</b> Gitleaks (lộ mật khẩu) + Trivy (CVE thư viện) + Semgrep (35 rule 15 hệ sinh thái).<br>• <b>Kiểm toán AI sâu:</b> Chạy thêm AI 3-Agent phân tích lỗ hổng logic/0-day &amp; lọc báo động giả.<br>• <b>So sánh Bản vá (Tab 3):</b> Dán <code>git diff</code> giữa 2 phiên bản để săn lỗi hồi quy &amp; biến thể.<br>• <b>Bề mặt Web (Tab 5):</b> Dùng Katana + httpx soi từ ngoài vào tìm Shadow API / JS endpoints.</td></tr>
-          <tr><td><b>Bước 4</b></td><td><b>Đọc &amp; Xuất Báo cáo</b><br>(Tab 6)</td><td>Xem trực tiếp chi tiết lỗi trên trình duyệt và bấm <b>Xuất Báo Cáo PDF (Gửi Lãnh Đạo)</b> hoặc <b>Xuất Báo Cáo Excel (.xlsx — 5 Sheet)</b> để bàn giao cho đội Dev/Quản lý.</td></tr>
+          <tr><td><b>Bước 1</b></td><td><b>Tạo Dự án / Máy chủ</b><br>(Tab 1 hoặc Tab 2)</td><td>Chọn 1 trong 3 cách:<br>• <b>Bấm <code>+ Tạo dự án mới</code> (Tab 1):</b> thêm máy chủ <b>Agentless SSH</b> (nhập IP, User, SSH Key/Password — <i>để trống ô đường dẫn</i> để tự dò toàn bộ OS, Firewall, Docker, DB và mã nguồn) hoặc trỏ <b>Thư mục Local</b>.<br>• <b>Thu thập 1-Dòng (Tab 2):</b> dùng cho Windows/Linux không mở SSH. Bấm tải file <code>.ps1</code> / <code>.sh</code> hoặc copy lệnh 1 dòng &rarr; hệ thống tự tạo dự án và tự chạy quét ngay.</td></tr>
+          <tr><td><b>Bước 2</b></td><td><b>Chọn Chế độ Quét &amp; Model AI</b><br>(Tab 1)</td><td>• Bấm <b>Quét nhanh (~30–60 giây):</b> chạy thẳng Gitleaks (lộ mật khẩu) + Trivy (CVE thư viện) + Semgrep (35 rule 15 hệ sinh thái) — không dùng AI.<br>• Bấm <b>Kiểm toán AI sâu:</b> hộp thoại <b>Chọn Model AI</b> sẽ hiện ra để bạn chọn Model Quét chính và Model Phản biện (Critic) phù hợp thời gian mong muốn.</td></tr>
+          <tr><td><b>Bước 3</b></td><td><b>Theo dõi Tiến trình &amp; Mở rộng</b><br>(Tab 3, 4, 5)</td><td>• <b>Tab 4 (Tiến trình &amp; Log):</b> theo dõi nhật ký chạy trực tiếp, dừng / chạy lại / xóa tác vụ.<br>• <b>Tab 3 (So sánh Bản vá):</b> dán <code>git diff</code> giữa 2 phiên bản để săn lỗi hồi quy &amp; biến thể.<br>• <b>Tab 5 (Bề mặt Web):</b> dùng Katana + httpx soi từ ngoài vào tìm Shadow API / JS endpoints.</td></tr>
+          <tr><td><b>Bước 4</b></td><td><b>Đọc &amp; Xuất Báo cáo</b><br>(Tab 6)</td><td>Xem trực tiếp bảng lỗi Gitleaks / Trivy / Semgrep &amp; báo cáo AI trên trình duyệt, sau đó bấm <b>Xuất Báo Cáo PDF (Gửi Lãnh Đạo)</b> hoặc <b>Xuất Báo Cáo Excel (.xlsx — 5 Sheet)</b>.</td></tr>
         </tbody>
       </table>
     </div>
     <div class="card">
-      <h2>2. Bảng Tư Vấn Chọn Model AI Cục Bộ (Theo Phần Cứng GPU)</h2>
+      <h2>2. Hiểu Đúng Về GPU (8 GB VRAM) vs RAM (32 GB) &amp; 6 Model AI Thực Tế</h2>
+      <div class="tip-box">
+        <b>Cơ chế nạp Model của Ollama trên máy chủ AI Audit (RTX 3050 8 GB VRAM + 32 GB RAM + Core i7-12700F):</b><br>
+        • Bộ nhớ tốc độ siêu nhanh của card đồ họa là <b>8 GB VRAM</b>. Model nào nhỏ hơn 8 GB sẽ nạp <b>100% vào GPU</b> &rarr; chạy rất nhanh.<br>
+        • Model nào lớn hơn 8 GB sẽ <b>chạy lai (Hybrid GPU + RAM)</b>: Ollama nạp tối đa phần lớn vào 8 GB VRAM, phần dư còn lại <b>tự tràn sang 32 GB RAM hệ thống</b> (CPU xử lý phần tràn này). Nhờ 32 GB RAM máy bạn chạy được đầy đủ cả các model 14B–30B mà không bị thiếu bộ nhớ, nhưng phần chạy qua RAM sẽ chậm hơn 100% GPU.
+      </div>
       <table>
-        <thead><tr><th>Model AI (Ollama Local)</th><th>Dung lượng</th><th>Tốc độ trên GPU 8 GB VRAM</th><th>Khuyến nghị sử dụng</th></tr></thead>
+        <thead><tr><th>Model AI thực tế (Ollama Local)</th><th>Dung lượng</th><th>Cách chạy trên RTX 3050 (8GB) + 32GB RAM</th><th>Khuyến nghị sử dụng</th></tr></thead>
         <tbody>
-          <tr><td><code>qwen3-vl:8b</code></td><td>~6.2 GB</td><td><b>Rất nhanh</b> (100% trong VRAM)</td><td><b>Mặc định hằng ngày</b> cho Quét sâu, 1-Line Push Audit &amp; Katana AI</td></tr>
-          <tr><td><code>deepseek-r1:14b</code></td><td>~9.0 GB</td><td>Khá nhanh</td><td><b>Model Phản biện (Critic)</b> lọc báo động giả &amp; So sánh Bản vá (Patch-Diff)</td></tr>
-          <tr><td><code>qwen3:30b-a3b</code> (MoE)</td><td>~18 GB</td><td>Trung bình (~3–5 phút/playbook)</td><td>Kiểm toán sâu mã nguồn lõi quan trọng (API, ERP, Auth, Payment)</td></tr>
-          <tr><td><code>gemma3:27b</code> (Dense)</td><td>~17 GB</td><td>Chậm (chạy qua RAM CPU)</td><td>Dùng khi chạy qua đêm hoặc tổng hợp báo cáo chuyên sâu</td></tr>
+          <tr><td><code>qwen3-vl:8b</code></td><td>6.2 GB</td><td><b>100% GPU (VRAM)</b> — Rất nhanh</td><td><b>Mặc định hằng ngày</b> cho Kiểm toán sâu, 1-Line Push Audit &amp; Katana AI</td></tr>
+          <tr><td><code>qwen2.5vl:7b</code></td><td>6.0 GB</td><td><b>100% GPU (VRAM)</b> — Rất nhanh</td><td>Model nhẹ dự phòng, phản hồi tức thì</td></tr>
+          <tr><td><code>deepseek-r1:14b</code></td><td>9.0 GB</td><td><b>~75% GPU + ~25% RAM</b> — Khá nhanh</td><td><b>Model Phản biện (Critic)</b> lọc báo động giả &amp; So sánh Bản vá (Patch-Diff)</td></tr>
+          <tr><td><code>qwen3:30b-a3b</code> (MoE)</td><td>18.0 GB</td><td><b>~35% GPU + ~65% RAM</b> — Trung bình</td><td>Kiến trúc MoE (chỉ kích hoạt 3B/token) — Kiểm toán sâu mã nguồn lõi (API, ERP, Auth)</td></tr>
+          <tr><td><code>gemma3:27b</code> (Dense)</td><td>17.0 GB</td><td><b>~35% GPU + ~65% RAM</b> — Chậm</td><td>Kiến trúc Dense (kích hoạt đủ 27B/token) — Phù hợp chạy qua đêm / tổng hợp sâu</td></tr>
+          <tr><td><code>qwen3-vl:30b</code> (MoE+VL)</td><td>19.0 GB</td><td><b>~35% GPU + ~65% RAM</b> — Trung bình</td><td>Bản 30B đa phương thức (code + hình ảnh)</td></tr>
         </tbody>
       </table>
     </div>
     <div class="card">
       <h2>3. Lưu Ý Bảo Mật &amp; Mẹo Vận Hành</h2>
       <ul style="line-height:1.8;color:#cbd5e1;padding-left:20px;margin:0">
-        <li><b>Chặn ClickFix của uBlock Origin khi bấm Sao chép:</b> Nếu trình duyệt hiện cảnh báo ClickFix khi copy lệnh PowerShell/Bash ở Tab 2, bạn có thể dùng ngay nút <b>Tải file <code>.ps1</code> / <code>.sh</code></b> (chạy trực tiếp không bị chặn) hoặc tắt uBlock riêng cho địa chỉ IP nội bộ của trang Audit.</li>
-        <li><b>Cuộn đọc Nhật ký (Tab 4):</b> Khi bạn lăn chuột lên để đọc log cũ, hệ thống tự động tạm dừng cuộn xuống; bấm nút <b>Xuống cuối log</b> để tiếp tục bám theo dòng mới nhất.</li>
+        <li><b>Cảnh báo ClickFix của uBlock Origin khi bấm Sao chép ở Tab 2:</b> Dùng ngay nút <b>Tải file <code>win_collector.ps1</code> / <code>linux_collector.sh</code></b> để tải trực tiếp và chạy, hoặc tắt uBlock riêng cho địa chỉ IP nội bộ của trang Audit.</li>
+        <li><b>Cuộn đọc Nhật ký (Tab 4):</b> Khi bạn lăn chuột lên đọc log cũ, hệ thống giữ nguyên vị trí không tự kéo xuống; bấm <b>Xuống cuối log</b> để quay lại dòng mới nhất.</li>
         <li><b>Quyền hạn quét:</b> Chỉ thực hiện kiểm toán và chạy Katana/SSH trên các máy chủ, ứng dụng và tên miền thuộc quyền sở hữu hợp pháp hoặc được cấp phép.</li>
       </ul>
     </div>
@@ -495,22 +548,47 @@ function toggleAuth(){
 }
 function resetForm(){
   document.getElementById('editId').value = '';
-  document.getElementById('formTitle').textContent = '+ Thêm Máy chủ (Agentless SSH) hoặc Thư mục Local';
-  document.getElementById('btnCancelEdit').classList.add('hidden');
+  document.getElementById('formTitle').textContent = '+ Tạo Dự án / Máy chủ mới';
   document.getElementById('pName').value = '';
+  document.getElementById('pMode').value = 'ssh';
   document.getElementById('sHost').value = '';
   document.getElementById('sPort').value = '22';
+  document.getElementById('sOs').value = 'linux';
   document.getElementById('sUser').value = 'ubuntu';
+  document.getElementById('sAuth').value = 'key';
   document.getElementById('sPass').value = '';
   document.getElementById('sCustomKey').value = '';
   document.getElementById('sPaths').value = '';
   document.getElementById('pPath').value = '';
+  document.querySelectorAll('#stackBoxes input').forEach(cb => cb.checked = true);
+  toggleMode(); toggleAuth();
 }
+function openCreateProjectModal(){
+  resetForm();
+  document.getElementById('projectModal').classList.remove('hidden');
+}
+function closeProjectModal(){
+  document.getElementById('projectModal').classList.add('hidden');
+}
+function openScanModal(pid){
+  const p = cachedProjects.find(x=>x.id===pid);
+  document.getElementById('scanTargetId').value = pid;
+  document.getElementById('scanModalTitle').textContent = 'Chọn Model AI — ' + (p ? p.name : pid);
+  document.getElementById('scanModelModal').classList.remove('hidden');
+}
+function closeScanModal(){
+  document.getElementById('scanModelModal').classList.add('hidden');
+}
+function confirmAiScan(){
+  const pid = document.getElementById('scanTargetId').value;
+  closeScanModal();
+  if(pid) triggerScan(pid, 'full');
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeProjectModal(); closeScanModal(); } });
 function editProject(pid){
   const p = cachedProjects.find(x=>x.id===pid); if(!p) return;
   document.getElementById('editId').value = p.id;
   document.getElementById('formTitle').textContent = 'Sửa Dự án: ' + p.name;
-  document.getElementById('btnCancelEdit').classList.remove('hidden');
   document.getElementById('pName').value = p.name;
   document.getElementById('pMode').value = p.mode === 'ssh' ? 'ssh' : 'local';
   toggleMode();
@@ -527,7 +605,7 @@ function editProject(pid){
   }
   const st = new Set(p.stacks || []);
   document.querySelectorAll('#stackBoxes input').forEach(cb => cb.checked = st.has(cb.value));
-  document.getElementById('formTitle').scrollIntoView({behavior:'smooth'});
+  document.getElementById('projectModal').classList.remove('hidden');
 }
 
 async function init(){
@@ -538,15 +616,18 @@ async function init(){
 }
 async function loadStatus(){
   const r = await fetch('/api/status'); const d = await r.json();
-  document.getElementById('ollamaBadge').textContent = d.ollama_ok ? `Ollama Ready (${d.models.length} models)` : 'Ollama Offline';
+  document.getElementById('ollamaBadge').textContent = d.ollama_ok ? `Ollama Sẵn sàng (${d.models.length} model)` : 'Ollama Ngoại tuyến';
   if(d.ollama_ok && d.models.length){
-    const opts = d.models.map(m=>`<option value="${m}">${m}</option>`).join('');
-    ['auditModelSel','criticModelSel','diffModel'].forEach(id=>{
+    const details = d.model_details || d.models.map(m=>({name:m, size_gb:0}));
+    const opts = details.map(m=>{
+      const tag = m.size_gb ? (m.size_gb <= 7.5 ? `${m.size_gb} GB — 100% GPU (Nhanh)` : `${m.size_gb} GB — GPU + RAM`) : '';
+      return `<option value="${m.name}">${m.name}${tag ? ' ('+tag+')' : ''}</option>`;
+    }).join('');
+    ['auditModelSel','criticModelSel','diffModel','kModel'].forEach(id=>{
       const el = document.getElementById(id); if(!el) return;
       el.innerHTML = opts;
-      if(id==='auditModelSel' && d.models.includes('qwen3-vl:8b')) el.value = 'qwen3-vl:8b';
+      if((id==='auditModelSel'||id==='diffModel'||id==='kModel') && d.models.includes('qwen3-vl:8b')) el.value = 'qwen3-vl:8b';
       if(id==='criticModelSel' && d.models.includes('deepseek-r1:14b')) el.value = 'deepseek-r1:14b';
-      if(id==='diffModel' && d.models.includes('qwen3-vl:8b')) el.value = 'qwen3-vl:8b';
     });
   }
 }
@@ -582,7 +663,7 @@ async function loadProjects(){
       <td>
         ${isSsh ? `<button class="btn btn-gray" onclick="testSsh('${p.id}')">Kiểm tra SSH</button>` : ''}
         <button class="btn btn-primary" onclick="triggerScan('${p.id}','quick')">${isSsh?'Đồng bộ SSH + ':''}Quét nhanh</button>
-        <button class="btn btn-ai" onclick="triggerScan('${p.id}','full')">${isSsh?'Đồng bộ SSH + ':''}Kiểm toán AI sâu</button>
+        <button class="btn btn-ai" onclick="openScanModal('${p.id}')">${isSsh?'Đồng bộ SSH + ':''}Kiểm toán AI sâu</button>
         <button class="btn btn-gray" onclick="editProject('${p.id}')">Sửa</button>
         <button class="btn btn-danger" onclick="delProject('${p.id}')">Xóa</button>
       </td>
@@ -611,7 +692,7 @@ async function saveProject(){
     if(!payload.path) return alert('Vui lòng nhập Đường dẫn thư mục!');
   }
   const r = await fetch('/api/projects', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-  if(r.ok){ resetForm(); loadProjects(); alert('Đã lưu thành công!'); } else { alert('Lỗi lưu dự án!'); }
+  if(r.ok){ closeProjectModal(); resetForm(); loadProjects(); alert('Đã lưu dự án thành công!'); } else { alert('Lỗi lưu dự án!'); }
 }
 async function delProject(pid){
   if(!confirm('Xóa dự án này khỏi danh sách?')) return;
@@ -623,7 +704,7 @@ async function testSsh(pid){
   alert(d.ok ? ('KẾT NỐI SSH THÀNH CÔNG!\n' + d.info) : ('LỖI KẾT NỐI SSH:\n' + d.error));
 }
 async function triggerScan(projectId, mode){
-  const r = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({project_id:projectId, mode, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b', critic_model:(document.getElementById('criticModelSel')||{}).value||'deepseek-r1:14b'})});
+  const r = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({project_id:projectId, mode, audit_model:(document.getElementById('kModel')||{}).value||'qwen3-vl:8b', critic_model:(document.getElementById('criticModelSel')||{}).value||'deepseek-r1:14b'})});
   const d = await r.json();
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
@@ -762,7 +843,12 @@ def api_status(request: Request):
     require_auth(request)
     try:
         d = json.loads(urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=4).read())
-        return {"ollama_ok": True, "models": [m["name"] for m in d.get("models", [])]}
+        ms = d.get("models", [])
+        return {
+            "ollama_ok": True,
+            "models": [m["name"] for m in ms],
+            "model_details": [{"name": m["name"], "size_gb": round(m.get("size", 0) / (1024**3), 1)} for m in ms],
+        }
     except Exception:
         return {"ollama_ok": False, "models": []}
 
@@ -1164,13 +1250,29 @@ def api_report_content(folder: str, filename: str, request: Request):
                     for x in data[:100]
                 )
                 return {"html": f"<h3>Gitleaks Findings ({len(data)} total — secrets masked)</h3><table><tr><th>Rule</th><th>File</th><th>Line</th><th>Match</th></tr>{rows}</table>"}
+            if "02_trivy" in fp.name and isinstance(data, dict):
+                v_rows, m_rows = [], []
+                for res in data.get("Results", []) or []:
+                    tgt = res.get("Target", "")
+                    for v in res.get("Vulnerabilities", []) or []:
+                        v_rows.append(f"<tr><td><b>{v.get('Severity','')}</b></td><td><code>{v.get('VulnerabilityID','')}</code></td><td><code>{v.get('PkgName','')}</code> ({v.get('InstalledVersion','')})</td><td><code>{v.get('FixedVersion','Chưa có')}</code></td><td>{tgt}</td></tr>")
+                    for m in res.get("Misconfigurations", []) or []:
+                        m_rows.append(f"<tr><td><b>{m.get('Severity','')}</b></td><td><code>{m.get('ID','')}</code></td><td>{m.get('Title','')}</td><td>{tgt}</td></tr>")
+                html_out = f"<h3>Trivy SCA — Lỗ hổng thư viện (CVE): {len(v_rows)} phát hiện</h3>"
+                if v_rows:
+                    html_out += f"<table><tr><th>Mức độ</th><th>CVE</th><th>Gói thư viện</th><th>Bản vá</th><th>Đường dẫn</th></tr>{''.join(v_rows[:200])}</table>"
+                else:
+                    html_out += "<p style='color:#4ade80'>Không phát hiện lỗ hổng CVE thư viện nào.</p>"
+                if m_rows:
+                    html_out += f"<h3 style='margin-top:18px'>Trivy Misconfiguration — Lỗi cấu hình: {len(m_rows)} phát hiện</h3><table><tr><th>Mức độ</th><th>Mã lỗi</th><th>Mô tả</th><th>Tệp cấu hình</th></tr>{''.join(m_rows[:150])}</table>"
+                return {"html": html_out}
             if "03_semgrep" in fp.name and isinstance(data, dict):
                 res = data.get("results", [])
                 rows = "".join(
                     f"<tr><td><b>{r.get('extra',{}).get('severity','')}</b></td><td><code>{r.get('check_id','').split('.')[-1]}</code></td><td><code>{r.get('path','')}:{r.get('start',{}).get('line','')}</code></td><td>{r.get('extra',{}).get('message','')}</td></tr>"
                     for r in res[:150]
                 )
-                return {"html": f"<h3>Semgrep SAST Findings ({len(res)} total)</h3><table><tr><th>Severity</th><th>Rule</th><th>Location</th><th>Message</th></tr>{rows}</table>"}
+                return {"html": f"<h3>Semgrep SAST — Phân tích mã nguồn tĩnh ({len(res)} phát hiện)</h3><table><tr><th>Mức độ</th><th>Quy tắc</th><th>Vị trí</th><th>Mô tả</th></tr>{rows}</table>"}
         except Exception:
             pass
     return {"html": f"<pre>{raw[:30000]}</pre>"}
@@ -1202,11 +1304,12 @@ async def api_katana_scan(request: Request):
     )
     steps = [(f"Katana + httpx Safe Discovery ({url})", ["wsl", "-u", "root", "bash", "-c", bash_cmd])]
     if with_ai:
+        k_model = re.sub(r"[^a-zA-Z0-9_.:-]+", "", body.get("audit_model", "qwen3-vl:8b")) or "qwen3-vl:8b"
         py_ai = (
             f"import json, re, urllib.request; from pathlib import Path; "
             f"rep = Path(r'F:\\ERP-Audit-Lab\\reports\\{tag}'); "
             f"surf = (rep / '07_web_surface_katana.md').read_text(encoding='utf-8', errors='ignore'); "
-            f"payload = {{'model':body.get('audit_model','qwen3-vl:8b'),'stream':False,'options':{{'temperature':0.1,'num_ctx':16384}},'messages':["
+            f"payload = {{'model':'{k_model}','stream':False,'options':{{'temperature':0.1,'num_ctx':16384}},'messages':["
             f"{{'role':'system','content':'Ban la Chuyen gia AppSec. Phan tich danh sach endpoint & fingerprint tu Katana/httpx de chi ra Shadow API, duong dan quan tri/nhay cam lo ra ngoai, thieu security header, va de xuat hardening/ModSecurity rule bang tieng Viet.'}},"
             f"{{'role':'user','content':surf[:24000]}}]}}; "
             f"req = urllib.request.Request('{OLLAMA_URL}/api/chat', data=json.dumps(payload).encode(), headers={{'Content-Type':'application/json'}}, method='POST'); "
@@ -1252,6 +1355,7 @@ def api_stop_job(jid: str, request: Request):
             proc.terminate()
     j["status"] = "FAILED"
     j["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    save_jobs_store()
     return {"ok": True}
 
 
