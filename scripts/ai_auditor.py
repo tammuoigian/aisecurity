@@ -254,15 +254,12 @@ def run_system_audit(repo_dir: Path, report_dir: Path):
     snap_txt = redact(snap.read_text(encoding="utf-8", errors="ignore"))[:22000] if snap.exists() else "No live_system_audit.md found."
     semgrep_sum = load_semgrep_summary(report_dir / "03_semgrep_sast.json")
     sys_prompt = (
-        "Bạn là Chuyên gia Bảo mật Hệ thống & Hạ tầng (Principal SecOps Engineer). "
-        "Hãy phân tích báo cáo hiện trạng hệ thống (OS/Hotfix, Firewall, Defender, Listening Ports, Local Admins, Installed Software, IIS/SQL/Docker) "
-        "và trả về Báo Cáo Kiểm Toán Bảo Mật bằng tiếng Việt rõ ràng, chuyên nghiệp gồm:
-"
-        "1) Đánh giá tổng quan mức độ an toàn (Critical / High / Medium / Low)
-"
-        "2) Danh sách các lỗ hổng / điểm yếu cụ thể tìm thấy (cổng mở nguy hiểm, Firewall tắt, bản vá thiếu, phần mềm cũ, cấu hình RDP/SMB/SQL/IIS yếu)
-"
-        "3) Kế hoạch khắc phục & Hardening ưu tiên theo thứ tự P0 -> P1 -> P2 (kèm lệnh cấu hình cụ thể)."
+        "Ban la Chuyen gia Bao mat He thong & Ha tang (Principal SecOps Engineer). "
+        "Hay phan tich bao cao hien trang he thong (OS/Hotfix, Firewall, Defender, Listening Ports, Local Admins, Installed Software, IIS/SQL/Docker) "
+        "va tra ve Bao Cao Kiem Toan Bao Mat bang tieng Viet co dau ro rang, chuyen nghiep gom: "
+        "1) Danh gia tong quan muc do an toan (Critical / High / Medium / Low); "
+        "2) Danh sach cac lo hong / diem yeu cu the tim thay (cong mo nguy hiem, Firewall tat, ban va thieu, phan mem cu, cau hinh RDP/SMB/SQL/IIS yeu); "
+        "3) Ke hoach khac phuc & Hardening uu tien theo thu tu P0 -> P1 -> P2 (kem lenh cau hinh cu the)."
     )
     user_prompt = f"### Hiện trạng hệ thống thực tế:\n{snap_txt}\n\n### Kết quả Semgrep SAST:\n{semgrep_sum[:3000]}"
     res = call_ollama(AUDIT_MODEL, sys_prompt, user_prompt, timeout=900)

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import tarfile
 import threading
@@ -130,8 +131,33 @@ def load_pkey_any(key_file: str):
             continue
     raise ValueError("Unsupported private key format")
 
-JOBS = {}
+JOBS_HISTORY_FILE = JOBS_DIR / "jobs_history.json"
 JOB_PROCS = {}
+
+def load_jobs_store():
+    if not JOBS_HISTORY_FILE.exists():
+        return {}
+    try:
+        data = json.loads(JOBS_HISTORY_FILE.read_text(encoding="utf-8"))
+        changed = False
+        for j in data.values():
+            if j.get("status") == "RUNNING":
+                j["status"] = "INTERRUPTED"
+                j["finished"] = j.get("finished") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                changed = True
+        if changed:
+            JOBS_HISTORY_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        return data
+    except Exception:
+        return {}
+
+def save_jobs_store():
+    try:
+        JOBS_HISTORY_FILE.write_text(json.dumps(JOBS, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+JOBS = load_jobs_store()
 
 def start_job(title: str, steps: list):
     jid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
@@ -139,8 +165,9 @@ def start_job(title: str, steps: list):
     JOBS[jid] = {
         "id": jid, "title": title, "status": "RUNNING",
         "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "finished": "", "log_file": str(log_path), "rc": None,
+        "finished": "", "log_file": str(log_path), "rc": None, "steps": steps,
     }
+    save_jobs_store()
     def runner():
         rc = 0
         with open(log_path, "w", encoding="utf-8", errors="replace") as lf:
@@ -172,13 +199,14 @@ def start_job(title: str, steps: list):
                 JOBS[jid]["status"] = "FAILED"
                 lf.write(f"\nERROR: {ex}\n")
             JOBS[jid]["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            save_jobs_store()
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v2.2.1")
+app = FastAPI(title="AI Security Audit Platform v2.2.2")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2.1</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2.2</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -188,7 +216,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v2.2.1</h1>
+<h1>AI Security Audit v2.2.2</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -197,7 +225,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2.1 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.2.2 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -231,12 +259,12 @@ textarea{font-family:ui-monospace,Consolas,monospace;min-height:110px}
 pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;overflow:auto;max-height:520px;font-size:12px;line-height:1.5;white-space:pre-wrap}
 .md{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:20px;line-height:1.65;overflow:auto}
 .md h1,.md h2,.md h3{color:#38bdf8} .md code{background:#1e293b;padding:2px 5px;border-radius:4px;font-size:12px}
-.st-RUNNING{color:#facc15;font-weight:700} .st-COMPLETED{color:#4ade80;font-weight:700} .st-FAILED{color:#f87171;font-weight:700}
+.st-RUNNING{color:#facc15;font-weight:700} .st-COMPLETED{color:#4ade80;font-weight:700} .st-FAILED{color:#f87171;font-weight:700} .st-INTERRUPTED{color:#fb923c;font-weight:700}
 .hidden{display:none}
 .keybox{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;color:#34d399;margin:6px 0}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v2.2.1 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Stacks</span></h1></div>
+  <div><h1>AI Security Audit v2.2.2 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Stacks</span></h1></div>
   <div><span id="ollamaBadge" class="badge">Checking Ollama...</span> <a href="/logout" style="color:#94a3b8;margin-left:14px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -352,7 +380,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 
   <div id="tab-jobs" class="hidden">
     <div class="card">
-      <h2>Lịch sử Tác vụ &amp; Live Log</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Lịch sử Tác vụ &amp; Live Log</h2><button class="btn btn-danger" onclick="clearFinishedJobs()">Xóa toàn bộ lịch sử đã xong/lỗi</button></div>
       <table><thead><tr><th>Job ID</th><th>Tên tác vụ</th><th>Trạng thái</th><th>Bắt đầu</th><th>Kết thúc</th><th>Log</th></tr></thead><tbody id="jobsTable"></tbody></table>
     </div>
     <div class="card"><h2>Live Terminal Output</h2><pre id="jobLog">Chọn một tác vụ để xem log trực tiếp...</pre></div>
@@ -384,6 +412,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
       <div style="margin-top:10px">
         <button class="btn btn-danger" onclick="exportReport('pdf')">Xuất Báo Cáo PDF (Gửi Lãnh Đạo)</button>
         <button class="btn btn-green" onclick="exportReport('excel')">Xuất Báo Cáo Excel (.xlsx — 5 Sheet)</button>
+        <button class="btn btn-gray" onclick="delReportFolder()">Xóa đợt báo cáo này</button>
       </div>
     </div>
     <div class="card"><div id="repContent" class="md">Chọn báo cáo để xem chi tiết...</div></div>
@@ -563,7 +592,7 @@ async function loadJobs(){
   document.getElementById('jobsTable').innerHTML = list.map(j=>`
     <tr><td><code>${j.id}</code></td><td>${j.title}</td><td class="st-${j.status}">${j.status}</td>
     <td>${j.started}</td><td>${j.finished||'-'}</td>
-    <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button>${j.status==='RUNNING'?`<button class="btn btn-danger" onclick="stopJob('${j.id}')">Dừng (Stop)</button>`:''}</td></tr>`).join('');
+    <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button>${j.status==='RUNNING'?`<button class="btn btn-danger" onclick="stopJob('${j.id}')">Dừng</button>`:`${j.steps?`<button class="btn btn-green" onclick="retryJob('${j.id}')">Chạy lại</button>`:''}<button class="btn btn-gray" onclick="delJob('${j.id}')">Xóa</button>`}</td></tr>`).join('');
 }
 async function stopJob(jid){ if(!confirm('Dừng tác vụ đang chạy?')) return; await fetch('/api/jobs/'+jid+'/stop', {method:'POST'}); loadJobs(); }
 async function loadJobLog(jid){
@@ -591,6 +620,29 @@ async function viewReportFile(){
   const d = await r.json();
   document.getElementById('repContent').innerHTML = d.html;
 }
+
+async function delJob(jid){
+  if(!confirm('Xóa lịch sử và log của tác vụ này?')) return;
+  await fetch('/api/jobs/'+jid, {method:'DELETE'}); loadJobs();
+}
+async function clearFinishedJobs(){
+  if(!confirm('Xóa toàn bộ lịch sử các tác vụ đã xong / lỗi / gián đoạn?')) return;
+  await fetch('/api/jobs', {method:'DELETE'}); loadJobs();
+  document.getElementById('jobLog').textContent = 'Đã dọn sạch lịch sử tác vụ.';
+}
+async function retryJob(jid){
+  const r = await fetch('/api/jobs/'+jid+'/retry', {method:'POST'});
+  const d = await r.json();
+  if(d.job_id){ activeJobId = d.job_id; loadJobs(); loadJobLog(d.job_id); }
+}
+async function delReportFolder(){
+  const folder = document.getElementById('repFolder').value;
+  if(!folder) return alert('Chưa chọn đợt báo cáo!');
+  if(!confirm('Xóa vĩnh viễn toàn bộ thư mục báo cáo: ' + folder + ' ?')) return;
+  const r = await fetch('/api/reports/'+encodeURIComponent(folder), {method:'DELETE'});
+  if(r.ok){ document.getElementById('repContent').innerHTML = 'Đã xóa đợt báo cáo.'; loadReportFolders(); }
+}
+
 function exportReport(fmt){
   const folder = document.getElementById('repFolder').value;
   if(!folder) return alert('Vui lòng chọn đợt báo cáo!');
@@ -1126,4 +1178,50 @@ def api_stop_job(jid: str, request: Request):
             proc.terminate()
     j["status"] = "FAILED"
     j["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {"ok": True}
+
+
+@app.delete("/api/jobs")
+def api_clear_jobs(request: Request):
+    require_auth(request)
+    for jid in list(JOBS.keys()):
+        if JOBS[jid].get("status") != "RUNNING":
+            lp = Path(JOBS[jid].get("log_file", ""))
+            if lp.exists():
+                lp.unlink(missing_ok=True)
+            del JOBS[jid]
+    save_jobs_store()
+    return {"ok": True}
+
+@app.delete("/api/jobs/{jid}")
+def api_delete_job(jid: str, request: Request):
+    require_auth(request)
+    j = JOBS.get(jid)
+    if not j:
+        raise HTTPException(404, "Job not found")
+    if j.get("status") == "RUNNING":
+        raise HTTPException(400, "Stop the running job before deleting")
+    lp = Path(j.get("log_file", ""))
+    if lp.exists():
+        lp.unlink(missing_ok=True)
+    del JOBS[jid]
+    save_jobs_store()
+    return {"ok": True}
+
+@app.post("/api/jobs/{jid}/retry")
+def api_retry_job(jid: str, request: Request):
+    require_auth(request)
+    j = JOBS.get(jid)
+    if not j or not j.get("steps"):
+        raise HTTPException(404, "Job steps not available for retry")
+    new_jid = start_job(j["title"] + " (Retry)", j["steps"])
+    return {"ok": True, "job_id": new_jid}
+
+@app.delete("/api/reports/{folder}")
+def api_delete_report(folder: str, request: Request):
+    require_auth(request)
+    d = (REPORTS_ROOT / folder).resolve()
+    if not str(d).startswith(str(REPORTS_ROOT.resolve())) or d == REPORTS_ROOT.resolve() or not d.exists():
+        raise HTTPException(404, "Report folder not found")
+    shutil.rmtree(d)
     return {"ok": True}
