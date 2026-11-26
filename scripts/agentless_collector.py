@@ -2,6 +2,7 @@ import argparse
 import io
 import json
 import os
+import shutil
 import subprocess
 import tarfile
 from datetime import datetime
@@ -29,43 +30,190 @@ EXCLUDE_ARGS = (
 )
 
 LINUX_SNAPSHOT_CMD = r"""
-echo "# Live System & Security Snapshot ($(hostname) - $(date -Iseconds))"
+HOST=$(hostname)
+NOW=$(date -Iseconds)
+OS_VER=$(lsb_release -ds 2>/dev/null || grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"')
+KERNEL=$(uname -sr)
+REBOOT=$([ -f /var/run/reboot-required ] && echo "CẦN REBOOT (YES)" || echo "Không (NO)")
+
+echo "# Báo Cáo Hiện Trạng Hệ Thống & CIS/MITRE Audit ($HOST — $NOW)"
 echo ""
-echo "## 1. OS & Kernel & Pending Security Updates"
-lsb_release -ds 2>/dev/null || cat /etc/os-release | head -n 4
-uname -a
-[ -f /var/run/reboot-required ] && echo "REBOOT_REQUIRED: YES" || echo "REBOOT_REQUIRED: NO"
-apt list --upgradable 2>/dev/null | head -n 40 || true
+echo "## 1. Hệ Điều Hành, Kernel & Gói Chờ Cập Nhật"
+echo ""
+echo "| Thông số | Giá trị |"
+echo "|---|---|"
+echo "| **Hostname** | \`$HOST\` |"
+echo "| **Hệ điều hành** | $OS_VER |"
+echo "| **Kernel** | \`$KERNEL\` |"
+echo "| **Trạng thái Reboot** | **$REBOOT** |"
+echo ""
+UPG=$(apt list --upgradable 2>/dev/null | grep -v '^Listing' | head -n 40 || true)
+if [ -n "$UPG" ]; then
+  CNT=$(apt list --upgradable 2>/dev/null | grep -v '^Listing' | wc -l)
+  echo "### Danh sách gói chờ cập nhật (Hiển thị tối đa 40 / Tổng $CNT gói)"
+  echo ""
+  echo "| Gói phần mềm | Phiên bản mới | Phiên bản hiện tại | Nhánh |"
+  echo "|---|---|---|---|"
+  echo "$UPG" | awk '{
+    split($1, a, "/"); pkg=a[1]; br=a[2];
+    newv=$2;
+    oldv="-";
+    if (match($0, /upgradable from: ([^\]]+)/, m)) oldv=m[1];
+    printf "| `%s` | `%s` | `%s` | %s |\n", pkg, newv, oldv, br;
+  }'
+else
+  echo "- Hệ thống đã cập nhật đầy đủ các gói APT."
+fi
 
 echo ""
-echo "## 2. Listening Network Ports (ss -tulpn)"
+echo "## 2. Cổng Mạng Đang Mở (Listening Ports — ss -tulpn)"
+echo ""
+echo '```text'
 ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null || true
+echo '```'
 
 echo ""
-echo "## 3. Firewall Status (UFW / DOCKER-USER)"
-ufw status verbose 2>/dev/null || true
-iptables -S DOCKER-USER 2>/dev/null || true
+echo "## 3. Tường Lửa (UFW / DOCKER-USER)"
+echo ""
+echo '```text'
+ufw status verbose 2>/dev/null || echo "UFW not installed"
+echo "--- iptables DOCKER-USER ---"
+iptables -S DOCKER-USER 2>/dev/null || echo "No DOCKER-USER chain"
+echo '```'
 
 echo ""
-echo "## 4. Privileged Users, Sudoers & Database Services"
-awk -F: '$3 == 0 {print "UID0:", $1}' /etc/passwd
-for svc in nginx haproxy postgresql mysql mariadb mongod redis-server docker ssh; do
+echo "## 4. CIS SSH, Kernel Sysctl & Dịch Vụ Nền"
+echo ""
+echo "| Kiểm tra CIS / Hardening | Cấu hình hiện tại |"
+echo "|---|---|"
+SSH_ROOT=$(grep -iE '^\s*PermitRootLogin' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | tail -n 1 || echo "Mặc định (chưa khai báo)")
+SSH_PASS=$(grep -iE '^\s*PasswordAuthentication' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | tail -n 1 || echo "Mặc định (chưa khai báo)")
+SSH_EMPTY=$(grep -iE '^\s*PermitEmptyPasswords' /etc/ssh/sshd_config 2>/dev/null | tail -n 1 || echo "no (mặc định)")
+ASLR=$(sysctl -n kernel.randomize_va_space 2>/dev/null || echo "N/A")
+SYNC=$(sysctl -n net.ipv4.tcp_syncookies 2>/dev/null || echo "N/A")
+IPFWD=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo "N/A")
+echo "| **SSH PermitRootLogin** | \`$SSH_ROOT\` |"
+echo "| **SSH PasswordAuthentication** | \`$SSH_PASS\` |"
+echo "| **SSH PermitEmptyPasswords** | \`$SSH_EMPTY\` |"
+echo "| **Kernel ASLR (randomize_va_space)** | \`$ASLR\` (chuẩn CIS = 2) |"
+echo "| **TCP SYN Cookies** | \`$SYNC\` (chuẩn CIS = 1) |"
+echo "| **IPv4 Forwarding** | \`$IPFWD\` |"
+echo ""
+echo '```text'
+for svc in nginx haproxy postgresql mysql mariadb mongod redis-server docker ssh fail2ban wazuh-agent; do
   st=$(systemctl is-active "$svc" 2>/dev/null || true)
   [ "$st" = "active" ] && echo "SERVICE_ACTIVE: $svc"
 done
-systemctl list-units --state=failed --no-pager 2>/dev/null || true
+echo '```'
 
 echo ""
-echo "## 5. Docker Security Audit (Privileged / docker.sock / 0.0.0.0 Ports / Root)"
+echo "## 5. MITRE ATT&CK — Leo Thang Đặc Quyền & Persistence (UID0 / Sudoers / SUID / Cron)"
+echo ""
+echo '```text'
+echo "[UID 0 Accounts]"
+awk -F: '$3 == 0 {print "  UID0:", $1}' /etc/passwd
+echo "[Sudoers NOPASSWD]"
+grep -rn "NOPASSWD" /etc/sudoers /etc/sudoers.d/ 2>/dev/null | head -n 20 || echo "  None"
+echo "[Suspicious Cron /tmp or /dev/shm]"
+grep -rnE "(/tmp/|/dev/shm/|curl |wget |base64 )" /etc/crontab /etc/cron.d/ /var/spool/cron/crontabs/ 2>/dev/null | head -n 20 || echo "  None"
+echo "[Non-standard SUID binaries (top 20)]"
+find /usr/local /opt /tmp /var /home -perm -4000 -type f 2>/dev/null | head -n 20 || true
+echo '```'
+
+echo ""
+echo "## 6. Kiểm Toán Bảo Mật Docker (Privileged / docker.sock / Host Network / Root)"
+echo ""
 if command -v docker >/dev/null 2>&1; then
+  echo '```text'
   docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
+  echo ""
   echo "--- Docker Risk Inspection ---"
   for cid in $(docker ps -q 2>/dev/null); do
     docker inspect "$cid" --format '{{.Name}} | Privileged={{.HostConfig.Privileged}} | NetMode={{.HostConfig.NetworkMode}} | User={{.Config.User}} | Mounts={{range .Mounts}}{{.Source}}:{{.Destination}},{{end}}' 2>/dev/null || true
   done
+  echo '```'
 else
-  echo "Docker not installed."
+  echo "- Docker chưa được cài đặt trên máy chủ này."
 fi
+"""
+
+WINDOWS_SNAPSHOT_PS = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+$h = $env:COMPUTERNAME
+$now = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+$cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+Write-Output "# Báo Cáo Hiện Trạng Windows & CIS/MITRE Audit ($h — $now)"
+Write-Output ""
+Write-Output "## 1. Hệ Điều Hành & Bản Vá Mới Nhất (Hotfixes)"
+Write-Output ""
+Write-Output "| Thông số | Giá trị |"
+Write-Output "|---|---|"
+Write-Output "| **Hostname** | ``$h`` |"
+Write-Output "| **OS** | $($cv.ProductName) (Build $($cv.CurrentBuild).$($cv.UBR)) |"
+Write-Output ""
+Write-Output '```text'
+Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 15 HotFixID, Description, InstalledOn | Format-Table -AutoSize | Out-String
+Write-Output '```'
+
+Write-Output "## 2. Windows Firewall, Defender & Exclusions (MITRE Defense Evasion)"
+Write-Output '```text'
+Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction | Format-Table -AutoSize | Out-String
+Get-MpComputerStatus | Select-Object AntivirusEnabled, RealTimeProtectionEnabled, BehaviorMonitorEnabled, AntivirusSignatureLastUpdated | Format-List | Out-String
+$mp = Get-MpPreference
+Write-Output ("Defender ExclusionPath: " + (($mp.ExclusionPath) -join ', '))
+Write-Output ("Defender ExclusionProcess: " + (($mp.ExclusionProcess) -join ', '))
+Write-Output '```'
+
+Write-Output "## 3. CIS Hardening (RDP / SMBv1 / LSA Protection / WDigest / UAC / PS Logging)"
+$rdp = (Get-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -EA 0).fDenyTSConnections
+$nla = (Get-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -EA 0).UserAuthentication
+$smb1 = (Get-SmbServerConfiguration -EA 0).EnableSMB1Protocol
+$ppl = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -EA 0).RunAsPPL
+$wdig = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' -EA 0).UseLogonCredential
+$uac = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -EA 0).EnableLUA
+$pslog = (Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging' -EA 0).EnableScriptBlockLogging
+Write-Output "| Kiểm tra CIS | Giá trị thực tế | Chuẩn khuyến nghị |"
+Write-Output "|---|---|---|"
+Write-Output "| **RDP Disabled (fDenyTSConnections)** | ``$rdp`` | 1 (hoặc bật NLA) |"
+Write-Output "| **RDP NLA (UserAuthentication)** | ``$nla`` | 1 (Bắt buộc NLA) |"
+Write-Output "| **SMBv1 Enabled** | ``$smb1`` | False |"
+Write-Output "| **LSA Protection (RunAsPPL)** | ``$ppl`` | 1 |"
+Write-Output "| **WDigest Plaintext (UseLogonCredential)** | ``$wdig`` | 0 hoặc trống |"
+Write-Output "| **UAC (EnableLUA)** | ``$uac`` | 1 |"
+Write-Output "| **PowerShell ScriptBlock Logging** | ``$pslog`` | 1 |"
+Write-Output ""
+
+Write-Output "## 4. Cổng Mạng Đang Mở (Listening TCP Ports)"
+Write-Output '```text'
+Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort | Sort-Object LocalPort -Unique | Format-Table -AutoSize | Out-String
+Write-Output '```'
+
+Write-Output "## 5. MITRE ATT&CK — Unquoted Service Paths, Local Admins & Scheduled Tasks"
+Write-Output '```text'
+Write-Output "[Local Administrators]"
+Get-LocalGroupMember -Group 'Administrators' | Select-Object Name, ObjectClass | Format-Table -AutoSize | Out-String
+Write-Output "[Unquoted Service Paths (Privilege Escalation)]"
+Get-CimInstance Win32_Service | Where-Object { $_.PathName -and $_.PathName -notmatch '^"' -and $_.PathName -notmatch '^C:\\Windows\\' -and $_.PathName -match ' ' } | Select-Object Name, State, PathName | Format-Table -AutoSize | Out-String
+Write-Output "[Non-Microsoft Scheduled Tasks running from Temp/Users/AppData]"
+Get-ScheduledTask | Where-Object { $_.TaskPath -notlike '\Microsoft\*' -and $_.State -ne 'Disabled' } | ForEach-Object {
+  $act = ($_.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join '; '
+  if ($act -match 'Temp|AppData|Users|powershell|cmd\.exe|wscript|mshta') { "$($_.TaskName) -> $act" }
+} | Select-Object -First 20
+Write-Output '```'
+
+Write-Output "## 6. IIS Websites, DB Services & SQL Server PatchLevel"
+Write-Output '```text'
+Import-Module WebAdministration -EA 0
+Get-Website -EA 0 | Select-Object Name, State, PhysicalPath | Format-Table -AutoSize | Out-String
+Get-Service | Where-Object { $_.Name -match 'SQL|Mongo|Postgres|MySQL|W3SVC|Docker|Redis|Wazuh' } | Select-Object Name, Status, StartType | Format-Table -AutoSize | Out-String
+Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -EA 0 | ForEach-Object {
+  $setup = Join-Path $_.PSPath 'Setup'
+  if (Test-Path $setup) {
+    $p = Get-ItemProperty $setup
+    Write-Output "SQL Instance=$($_.PSChildName) | Edition=$($p.Edition) | Version=$($p.Version) | PatchLevel=$($p.PatchLevel)"
+  }
+}
+Write-Output '```'
 """
 
 def load_pkey_any(key_file: str):
@@ -86,7 +234,6 @@ def connect_ssh(host, port, username, auth_type, key_path, password):
         try:
             cli.connect(host, port=int(port), username=username, password=password, timeout=15, look_for_keys=False, allow_agent=False)
         except paramiko.AuthenticationException:
-            # Fallback to keyboard-interactive auth for hardened VPS hosts
             tr = paramiko.Transport((host, int(port)))
             tr.connect()
             tr.auth_interactive(username, lambda title, instr, prompts: [password for _ in prompts])
@@ -109,6 +256,8 @@ def run_remote(cli, cmd, use_sudo=False, sudo_pass="", timeout=120):
     return o.read(), e.read()
 
 def safe_extract_tar_bytes(raw_bytes: bytes, dest_dir: Path):
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir, ignore_errors=True)
     if not raw_bytes:
         return 0
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -146,7 +295,7 @@ def collect_linux(cli, target_dir: Path, remote_paths: str, sudo_pass: str):
     else:
         print("  [INFO] Root/sudo read-only SSH mode", flush=True)
 
-    print("  [1/3] Collecting Live System, Firewall, DB & Docker Snapshot...", flush=True)
+    print("  [1/3] Collecting Live System, CIS Hardening, MITRE Persistence & Docker Snapshot...", flush=True)
     snap_out, _ = run_remote(cli, LINUX_SNAPSHOT_CMD, use_sudo=use_sudo, sudo_pass=sudo_pass, timeout=60)
     (target_dir / "live_system_audit.md").write_bytes(snap_out)
 
@@ -158,7 +307,7 @@ def collect_linux(cli, target_dir: Path, remote_paths: str, sudo_pass: str):
     )
     cfg_bytes, _ = run_remote(cli, cfg_cmd, use_sudo=use_sudo, sudo_pass=sudo_pass, timeout=90)
     n_cfg = safe_extract_tar_bytes(cfg_bytes, target_dir / "configs")
-    print(f"       Pulled {n_cfg} config files.", flush=True)
+    print(f"       Pulled {n_cfg} config files (cleaned stale configs first).", flush=True)
 
     if remote_paths.strip():
         clean_paths = [p.strip() for p in remote_paths.split(",") if p.strip()]
@@ -175,29 +324,14 @@ def collect_linux(cli, target_dir: Path, remote_paths: str, sudo_pass: str):
         )
     code_bytes, _ = run_remote(cli, code_cmd, use_sudo=use_sudo, sudo_pass=sudo_pass, timeout=180)
     n_code = safe_extract_tar_bytes(code_bytes, target_dir / "code")
-    print(f"       Pulled {n_code} source files.", flush=True)
+    print(f"       Pulled {n_code} clean source files (removed stale node_modules).", flush=True)
 
 def collect_windows(cli, target_dir: Path):
-    print("  [1/2] Collecting Windows Live System, Firewall, IIS & MSSQL Snapshot...", flush=True)
-    ps = r"""
-Write-Output "# Windows Live Security Snapshot ($env:COMPUTERNAME - $(Get-Date -Format 's'))"
-Write-Output "## 1. OS & Hotfixes"
-Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' | Select-Object ProductName, CurrentBuild, UBR | Format-List
-Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 10 HotFixID, InstalledOn | Format-Table -AutoSize
-Write-Output "## 2. Firewall Profiles & Defender"
-Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction | Format-Table -AutoSize
-Get-MpComputerStatus -EA 0 | Select-Object AntivirusEnabled, RealTimeProtectionEnabled, AntivirusSignatureLastUpdated | Format-List
-Write-Output "## 3. Listening Ports"
-Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort | Sort-Object LocalPort -Unique | Format-Table -AutoSize
-Write-Output "## 4. IIS Websites & SQL/DB Services"
-Import-Module WebAdministration -EA 0
-Get-Website -EA 0 | Select-Object Name, State, PhysicalPath | Format-Table -AutoSize
-Get-Service | Where-Object { $_.Name -match 'SQL|Mongo|Postgres|MySQL|W3SVC|Docker' } | Select-Object Name, Status, StartType | Format-Table -AutoSize
-"""
-    i, o, e = cli.exec_command("powershell -NoProfile -NonInteractive -Command -", timeout=60)
-    i.write(ps + "\n"); i.flush(); i.channel.shutdown_write()
+    print("  [1/2] Collecting Windows CIS Hardening, MITRE Persistence, IIS & MSSQL Snapshot...", flush=True)
+    i, o, e = cli.exec_command("powershell -NoProfile -NonInteractive -Command -", timeout=90)
+    i.write(WINDOWS_SNAPSHOT_PS + "\n"); i.flush(); i.channel.shutdown_write()
     (target_dir / "live_system_audit.md").write_bytes(o.read())
-    print("  [2/2] Windows Live Snapshot saved.", flush=True)
+    print("  [2/2] Windows CIS/MITRE Live Snapshot saved.", flush=True)
 
 def main():
     ap = argparse.ArgumentParser()

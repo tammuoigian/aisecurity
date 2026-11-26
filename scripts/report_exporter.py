@@ -9,6 +9,62 @@ import markdown
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 
+# Remediation Knowledge Base (Solutions tiếng Việt chuyên sâu theo Rule / Nhóm lỗi)
+REMEDIATION_KB = {
+    "sql-injection": "Sử dụng Parameterized Query / Prepared Statement (SqlParameter, EF Core FromSqlInterpolated) thay cho nối chuỗi SQL trực tiếp; áp dụng ModSecurity WAF rule chặn tạm nếu chưa kịp vá code.",
+    "sqli": "Sử dụng Parameterized Query / Prepared Statement; tuyệt đối không nối chuỗi biến đầu vào người dùng vào câu lệnh SQL.",
+    "nosql": "Sanitize dữ liệu đầu vào (loại bỏ toán tử `$where`, `$ne`, `$gt`, `$regex`), ép kiểu string/ObjectId và tắt JavaScript execution trong MongoDB.",
+    "deserialization": "Loại bỏ BinaryFormatter / TypeNameHandling.All; chuyển sang System.Text.Json hoặc Newtonsoft.Json với TypeNameHandling.None.",
+    "binaryformatter": "Thay thế BinaryFormatter bằng System.Text.Json hoặc clone đối tượng an toàn (MemberwiseClone / AutoMapper).",
+    "command-injection": "Không truyền input người dùng trực tiếp vào shell (`exec`, `Process.Start`, `os.system`); dùng danh sách tham số (array) và allowlist giá trị hợp lệ.",
+    "path-traversal": "Chuẩn hóa đường dẫn bằng `Path.GetFullPath()` / `realpath()`, kiểm tra prefix nằm trong thư mục gốc cho phép và chỉ cho phép tên file theo allowlist.",
+    "ssrf": "Chặn truy cập dải IP nội bộ/metadata (`127.0.0.0/8`, `10.0.0.0/8`, `169.254.169.254`), chỉ cho phép kết nối tới domain nằm trong danh sách allowlist.",
+    "xss": "Encode dữ liệu đầu ra theo ngữ cảnh HTML/JS, tránh `dangerouslySetInnerHTML` / `innerHTML` (hoặc lọc bằng DOMPurify) và bật Content-Security-Policy (CSP).",
+    "cors": "Thay `Access-Control-Allow-Origin: *` bằng danh sách domain tin cậy cụ thể; không kết hợp `*` với `Access-Control-Allow-Credentials: true`.",
+    "tls": "Nâng cấp cấu hình lên TLS 1.2 / TLS 1.3; tắt SSLv3, TLS 1.0, TLS 1.1 và không tắt kiểm tra chứng chỉ (`rejectUnauthorized: false` / `verify=False`).",
+    "docker-network-host": "Gỡ `network_mode: host` trong `docker-compose.yml`; sử dụng bridge network riêng của ứng dụng và chỉ publish đúng port cần thiết (bind `127.0.0.1` nếu đi qua Reverse Proxy).",
+    "docker-privileged": "Tắt `privileged: true`; chỉ cấp quyền tối thiểu qua `cap_drop: [ALL]` và `cap_add` cần thiết, chạy container bằng user non-root.",
+    "docker-sock": "Không mount `/var/run/docker.sock` vào container ứng dụng (tương đương quyền root host); nếu bắt buộc giám sát hãy dùng Docker Socket Proxy chỉ-đọc.",
+    "hardcoded": "Gỡ bỏ mật khẩu/API key cứng khỏi mã nguồn; xoay vòng (rotate) khóa ngay lập tức và chuyển sang biến môi trường (.env) hoặc Secrets Manager.",
+    "jwt": "Sử dụng thuật toán ký mạnh (HS256 với secret >= 32 ký tự ngẫu nhiên hoặc RS256), bắt buộc kiểm tra chữ ký & thời hạn `exp` và từ chối `alg: none`.",
+    "nginx": "Ẩn phiên bản (`server_tokens off;`), bật Security Headers (HSTS, X-Frame-Options, X-Content-Type-Options, CSP), giới hạn `client_max_body_size` và bật ModSecurity WAF.",
+    "haproxy": "Bật TLS 1.2+, cấu hình rate-limit (`stick-table`), ẩn header phiên bản và giới hạn quyền truy cập trang stats chỉ cho IP nội bộ.",
+    "wordpress": "Tắt chỉnh sửa file trong wp-admin (`DISALLOW_FILE_EDIT`), chặn `xmlrpc.php`, giới hạn truy cập `wp-login.php` và cập nhật core/plugin/theme định kỳ.",
+    "mcp": "Giới hạn quyền công cụ MCP theo nguyên tắc tối thiểu (least privilege), xác thực token/origin, không chạy shell tùy ý từ prompt không tin cậy.",
+    "mongodb": "Bind `net.bindIp: 127.0.0.1` (hoặc IP VPN nội bộ), bật `security.authorization: enabled` và tạo tài khoản phân quyền theo từng database.",
+    "postgres": "Giới hạn `pg_hba.conf` dùng `scram-sha-256`, không dùng `trust` hay mở `0.0.0.0/0` ra Internet; bật SSL cho kết nối DB.",
+    "mysql": "Bind `127.0.0.1` hoặc mạng nội bộ, xóa tài khoản anonymous/root từ xa và bắt buộc kết nối qua TLS.",
+    "mssql": "Cập nhật SQL Server Cumulative Update (CU/GDR) mới nhất, tắt `xp_cmdshell`, đổi cổng mặc định và giới hạn Windows Firewall chỉ cho IP APP/API.",
+}
+
+CRITICAL_HINTS = ("sqli", "sql-injection", "rce", "command-injection", "deserialization", "binaryformatter", "docker-privileged", "docker-sock", "auth-bypass", "eval", "hardcoded-secret")
+HIGH_HINTS = ("nosql", "ssrf", "path-traversal", "xxe", "jwt", "xss", "dangerouslysetinnerhtml", "tls-verify-disabled", "mongodb-no-auth", "postgres-trust", "mcp")
+LOW_HINTS = ("info", "server-tokens", "header", "debug", "cookie-flag")
+
+def normalize_severity(raw_sev: str, rule_id: str = "") -> str:
+    s = (raw_sev or "").upper().strip()
+    rid = (rule_id or "").lower()
+    if s in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+        return s
+    if any(k in rid for k in CRITICAL_HINTS):
+        return "CRITICAL" if s == "ERROR" else "HIGH"
+    if s == "ERROR":
+        return "HIGH"
+    if s == "WARNING":
+        if any(k in rid for k in HIGH_HINTS):
+            return "HIGH"
+        return "MEDIUM"
+    if any(k in rid for k in LOW_HINTS):
+        return "LOW"
+    return "LOW"
+
+def get_solution(rule_id: str, msg: str = "") -> str:
+    hay = f"{rule_id} {msg}".lower()
+    for key, sol in REMEDIATION_KB.items():
+        if key in hay:
+            return sol
+    return "Rà soát vị trí mã nguồn/cấu hình bị cảnh báo, áp dụng kiểm soát đầu vào (input validation), nguyên tắc quyền tối thiểu và kiểm thử lại sau khi vá."
+
 def _load_json(path: Path, default):
     if not path.exists():
         return default
@@ -23,56 +79,82 @@ def _gather_report_data(report_dir: Path):
         gl = []
     sg_raw = _load_json(report_dir / "03_semgrep_sast.json", {})
     sg = sg_raw.get("results", []) if isinstance(sg_raw, dict) else []
+    sg_norm = []
+    for r in sg:
+        cid = r.get("check_id", "").split(".")[-1]
+        raw_s = r.get("extra", {}).get("severity", "INFO")
+        msg = r.get("extra", {}).get("message", "")
+        sev = normalize_severity(raw_s, cid)
+        sg_norm.append({
+            "severity": sev,
+            "rule_id": cid,
+            "path": r.get("path", "").replace("/mnt/f/ERP-Audit-Lab/repo/", "").replace("/mnt/f/ERP-Audit-Lab/targets/", ""),
+            "line": r.get("start", {}).get("line", ""),
+            "message": msg,
+            "solution": get_solution(cid, msg),
+        })
+    sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    sg_norm.sort(key=lambda x: sev_order.get(x["severity"], 9))
+
     tr_raw = _load_json(report_dir / "02_trivy_sca.json", {})
     tr_items = []
     if isinstance(tr_raw, dict):
         for res in tr_raw.get("Results", []) or []:
             tgt = res.get("Target", "")
             for v in res.get("Vulnerabilities", []) or []:
+                fixed = v.get("FixedVersion", "")
+                pkg = v.get("PkgName", "")
                 tr_items.append({
-                    "severity": v.get("Severity", "UNKNOWN"),
+                    "severity": normalize_severity(v.get("Severity", "MEDIUM")),
                     "id": v.get("VulnerabilityID", ""),
-                    "target": f"{tgt} ({v.get('PkgName', '')})",
+                    "target": f"{tgt} ({pkg})",
                     "installed": v.get("InstalledVersion", ""),
-                    "fixed": v.get("FixedVersion", ""),
+                    "fixed": fixed or "Theo dõi bản vá mới",
                     "desc": v.get("Title") or v.get("Description", "")[:180],
+                    "solution": f"Nâng cấp gói `{pkg}` lên phiên bản `{fixed}` trở lên và kiểm thử hồi quy." if fixed else f"Áp dụng biện pháp giảm thiểu (WAF/Virtual Patch) và theo dõi bản vá chính thức cho `{pkg}`.",
                 })
             for m in res.get("Misconfigurations", []) or []:
                 tr_items.append({
-                    "severity": m.get("Severity", "UNKNOWN"),
+                    "severity": normalize_severity(m.get("Severity", "MEDIUM"), m.get("ID", "")),
                     "id": m.get("ID", ""),
                     "target": tgt,
                     "installed": "-",
-                    "fixed": m.get("Resolution", "")[:100],
+                    "fixed": m.get("Resolution", "")[:120],
                     "desc": m.get("Title", ""),
+                    "solution": m.get("Resolution", "") or get_solution(m.get("ID", ""), m.get("Title", "")),
                 })
+    tr_items.sort(key=lambda x: sev_order.get(x["severity"], 9))
 
     md_sections = []
     for fname, label in [
-        ("05_ai_deep_audit_report.md", "Phân Tích Chuyên Sâu AI 3-Agent & Đề Xuất Khắc Phục"),
-        ("06_patch_diff_audit.md", "Phân Tích Patch-Diff & Variant Analysis"),
-        ("07_web_surface_katana.md", "Khám Phá Bề Mặt Web / SPA (Katana & httpx)"),
-        ("00_live_system_audit.md", "Hiện Trạng Hệ Thống Thực Tế (Live System Snapshot)"),
+        ("05_ai_deep_audit_report.md", "Phân Tích Chuyên Sâu AI & Đề Xuất Khắc Phục"),
+        ("06_patch_diff_audit.md", "Phân Tích So Sánh Bản Vá (Patch-Diff & Variant Analysis)"),
+        ("07_web_surface_katana.md", "Khám Phá Bề Mặt Web & Nuclei Safe Scan"),
+        ("00_live_system_audit.md", "Hiện Trạng Hệ Thống & Kiểm Toán CIS / MITRE"),
     ]:
         fp = report_dir / fname
         if fp.exists():
             md_sections.append((label, fp.read_text(encoding="utf-8", errors="ignore")))
 
-    sast_err = sum(1 for r in sg if r.get("extra", {}).get("severity", "").upper() == "ERROR")
-    sast_warn = sum(1 for r in sg if r.get("extra", {}).get("severity", "").upper() == "WARNING")
-    tr_crit = sum(1 for x in tr_items if x["severity"].upper() in ("CRITICAL", "HIGH"))
+    sast_crit = sum(1 for r in sg_norm if r["severity"] == "CRITICAL")
+    sast_high = sum(1 for r in sg_norm if r["severity"] == "HIGH")
+    sast_med = sum(1 for r in sg_norm if r["severity"] == "MEDIUM")
+    sast_low = sum(1 for r in sg_norm if r["severity"] == "LOW")
+    tr_crit = sum(1 for x in tr_items if x["severity"] in ("CRITICAL", "HIGH"))
 
     return {
         "folder": report_dir.name,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "gitleaks": gl,
-        "semgrep": sg,
+        "semgrep": sg_norm,
         "trivy": tr_items,
         "md_sections": md_sections,
         "kpi": {
-            "sast_total": len(sg),
-            "sast_critical_error": sast_err,
-            "sast_warning": sast_warn,
+            "sast_total": len(sg_norm),
+            "sast_critical": sast_crit,
+            "sast_high": sast_high,
+            "sast_medium": sast_med,
+            "sast_low": sast_low,
             "secrets_total": len(gl),
             "sca_total": len(tr_items),
             "sca_crit_high": tr_crit,
@@ -86,81 +168,81 @@ def export_excel(report_dir: Path, out_xlsx: Path) -> Path:
     hdr_fill = PatternFill("solid", fgColor="0F172A")
     hdr_font = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
     title_font = Font(bold=True, color="0F172A", name="Calibri", size=15)
-    red_fill = PatternFill("solid", fgColor="FEE2E2")
-    yel_fill = PatternFill("solid", fgColor="FEF3C7")
+    crit_fill = PatternFill("solid", fgColor="FCA5A5")
+    high_fill = PatternFill("solid", fgColor="FDBA74")
+    med_fill = PatternFill("solid", fgColor="FEF08A")
+    low_fill = PatternFill("solid", fgColor="BAE6FD")
     grn_fill = PatternFill("solid", fgColor="DCFCE7")
+    sev_fills = {"CRITICAL": crit_fill, "HIGH": high_fill, "MEDIUM": med_fill, "LOW": low_fill}
 
     # Sheet 1: Tong_Quan
     ws1 = wb.active
     ws1.title = "Tong_Quan"
-    ws1["A1"] = "BÁO CÁO KIỂM TOÁN BẢO MẬT HỆ THỐNG — AI SECURITY AUDIT"
+    ws1["A1"] = "BÁO CÁO KIỂM TOÁN BẢO MẬT HỆ THỐNG — AI SECURITY AUDIT v3.0"
     ws1["A1"].font = title_font
     ws1["A2"] = f"Đợt kiểm toán: {d['folder']}"
     ws1["A3"] = f"Ngày xuất báo cáo: {d['generated_at']}"
 
     ws1.append([])
-    ws1.append(["Hạng mục kiểm toán", "Số lượng phát hiện", "Mức độ ưu tiên / Ghi chú"])
+    ws1.append(["Hạng mục kiểm toán", "Số lượng phát hiện", "Mức độ ưu tiên / Lộ trình xử lý"])
     for cell in ws1[5]:
         cell.fill = hdr_fill; cell.font = hdr_font
 
     rows_summary = [
-        ("Lỗ hổng Mã nguồn SAST mức Nghiêm trọng (ERROR)", d["kpi"]["sast_critical_error"], "P0 - Cần vá ngay / Virtual Patch"),
-        ("Cảnh báo Mã nguồn SAST (WARNING)", d["kpi"]["sast_warning"], "P1 - Cần rà soát & khắc phục"),
-        ("Lộ thông tin nhạy cảm / Secrets (Gitleaks)", d["kpi"]["secrets_total"], "P0 - Xoay vòng mật khẩu / dọn file thừa"),
-        ("Lỗ hổng Thư viện & Cấu hình (Trivy Critical/High)", d["kpi"]["sca_crit_high"], "P1 - Lên kế hoạch cập nhật gói/config"),
-        ("Tổng số phát hiện Trivy SCA & Misconfig", d["kpi"]["sca_total"], "Theo dõi định kỳ"),
+        ("Lỗ hổng Mã nguồn SAST mức CRITICAL", d["kpi"]["sast_critical"], "P0 - Vá khẩn cấp trong 24h / Bật Virtual Patch WAF"),
+        ("Lỗ hổng Mã nguồn SAST mức HIGH", d["kpi"]["sast_high"], "P0/P1 - Ưu tiên khắc phục trong 72h"),
+        ("Lỗ hổng Mã nguồn SAST mức MEDIUM", d["kpi"]["sast_medium"], "P1 - Rà soát & khắc phục trong 7 ngày"),
+        ("Lỗ hổng Mã nguồn SAST mức LOW", d["kpi"]["sast_low"], "P2 - Cải thiện hardening định kỳ"),
+        ("Lộ thông tin nhạy cảm / Secrets (Gitleaks)", d["kpi"]["secrets_total"], "P0 - Xoay vòng mật khẩu/key ngay & gỡ khỏi mã nguồn"),
+        ("Lỗ hổng Thư viện & Cấu hình (Trivy Critical/High)", d["kpi"]["sca_crit_high"], "P1 - Nâng cấp gói thư viện / vá cấu hình"),
     ]
     for r in rows_summary:
         ws1.append(list(r))
-    for row in ws1.iter_rows(min_row=6, max_row=10):
+    for row in ws1.iter_rows(min_row=6, max_row=11):
         if row[1].value and int(row[1].value) > 0:
-            row[1].fill = red_fill if "P0" in str(row[2].value) else yel_fill
+            row[1].fill = crit_fill if "P0" in str(row[2].value) else med_fill
         else:
             row[1].fill = grn_fill
     ws1.column_dimensions["A"].width = 48
     ws1.column_dimensions["B"].width = 22
-    ws1.column_dimensions["C"].width = 42
+    ws1.column_dimensions["C"].width = 50
 
-    # Sheet 2: Lo_Hong_SAST
+    # Sheet 2: Lo_Hong_SAST (kèm Giải pháp vá)
     ws2 = wb.create_sheet("Lo_Hong_SAST")
-    ws2.append(["STT", "Mức độ", "Mã Rule", "Đường dẫn File", "Dòng", "Mô tả chi tiết"])
+    ws2.append(["STT", "Mức độ", "Mã Rule", "Đường dẫn File", "Dòng", "Mô tả chi tiết", "Giải pháp khắc phục (Solution)"])
     for cell in ws2[1]:
         cell.fill = hdr_fill; cell.font = hdr_font
     for idx, r in enumerate(d["semgrep"], 1):
-        sev = r.get("extra", {}).get("severity", "INFO")
-        cid = r.get("check_id", "").split(".")[-1]
-        fp = r.get("path", "").replace("/mnt/f/ERP-Audit-Lab/repo/", "")
-        ln = r.get("start", {}).get("line", "")
-        msg = r.get("extra", {}).get("message", "")
-        ws2.append([idx, sev, cid, fp, ln, msg])
-        if sev.upper() == "ERROR":
-            ws2.cell(idx + 1, 2).fill = red_fill
-        elif sev.upper() == "WARNING":
-            ws2.cell(idx + 1, 2).fill = yel_fill
-    ws2.auto_filter.ref = f"A1:F{max(1, len(d['semgrep'])+1)}"
-    for col, w in [("A", 7), ("B", 13), ("C", 34), ("D", 55), ("E", 8), ("F", 65)]:
+        ws2.append([idx, r["severity"], r["rule_id"], r["path"], r["line"], r["message"], r["solution"]])
+        ws2.cell(idx + 1, 2).fill = sev_fills.get(r["severity"], low_fill)
+        ws2.cell(idx + 1, 7).alignment = Alignment(wrap_text=True, vertical="top")
+    ws2.auto_filter.ref = f"A1:G{max(1, len(d['semgrep'])+1)}"
+    for col, w in [("A", 7), ("B", 13), ("C", 32), ("D", 48), ("E", 8), ("F", 48), ("G", 60)]:
         ws2.column_dimensions[col].width = w
 
     # Sheet 3: Lo_Secret
     ws3 = wb.create_sheet("Lo_Secret")
-    ws3.append(["STT", "Loại Secret", "File", "Dòng", "Giá trị (Đã che bảo mật)"])
+    ws3.append(["STT", "Mức độ", "Loại Secret", "File", "Dòng", "Giá trị (Đã che)", "Giải pháp khắc phục (Solution)"])
     for cell in ws3[1]:
         cell.fill = hdr_fill; cell.font = hdr_font
     for idx, g in enumerate(d["gitleaks"], 1):
-        ws3.append([idx, g.get("RuleID", ""), g.get("File", "").replace("/mnt/f/ERP-Audit-Lab/repo/", ""), g.get("StartLine", ""), "***REDACTED***"])
-    ws3.auto_filter.ref = f"A1:E{max(1, len(d['gitleaks'])+1)}"
-    for col, w in [("A", 7), ("B", 24), ("C", 60), ("D", 8), ("E", 24)]:
+        fp = g.get("File", "").replace("/mnt/f/ERP-Audit-Lab/repo/", "").replace("/mnt/f/ERP-Audit-Lab/targets/", "")
+        ws3.append([idx, "CRITICAL", g.get("RuleID", ""), fp, g.get("StartLine", ""), "***REDACTED***", REMEDIATION_KB["hardcoded"]])
+        ws3.cell(idx + 1, 2).fill = crit_fill
+    ws3.auto_filter.ref = f"A1:G{max(1, len(d['gitleaks'])+1)}"
+    for col, w in [("A", 7), ("B", 12), ("C", 24), ("D", 50), ("E", 8), ("F", 20), ("G", 55)]:
         ws3.column_dimensions[col].width = w
 
     # Sheet 4: Lo_Hong_Thu_Vien
     ws4 = wb.create_sheet("Lo_Hong_Thu_Vien")
-    ws4.append(["STT", "Mức độ", "CVE / Rule ID", "Gói / File", "Phiên bản hiện tại", "Phiên bản vá", "Mô tả"])
+    ws4.append(["STT", "Mức độ", "CVE / Rule ID", "Gói / File", "Phiên bản hiện tại", "Phiên bản vá", "Mô tả", "Giải pháp khắc phục (Solution)"])
     for cell in ws4[1]:
         cell.fill = hdr_fill; cell.font = hdr_font
     for idx, t in enumerate(d["trivy"], 1):
-        ws4.append([idx, t["severity"], t["id"], t["target"], t["installed"], t["fixed"], t["desc"]])
-    ws4.auto_filter.ref = f"A1:G{max(1, len(d['trivy'])+1)}"
-    for col, w in [("A", 7), ("B", 13), ("C", 22), ("D", 38), ("E", 18), ("F", 22), ("G", 55)]:
+        ws4.append([idx, t["severity"], t["id"], t["target"], t["installed"], t["fixed"], t["desc"], t["solution"]])
+        ws4.cell(idx + 1, 2).fill = sev_fills.get(t["severity"], low_fill)
+    ws4.auto_filter.ref = f"A1:H{max(1, len(d['trivy'])+1)}"
+    for col, w in [("A", 7), ("B", 13), ("C", 22), ("D", 36), ("E", 16), ("F", 20), ("G", 45), ("H", 55)]:
         ws4.column_dimensions[col].width = w
 
     # Sheet 5: Phan_Tich_AI
@@ -191,17 +273,26 @@ def _find_edge():
 def export_pdf(report_dir: Path, out_pdf: Path) -> Path:
     d = _gather_report_data(report_dir)
     sast_rows = "".join(
-        f"<tr><td><span class='sev-{r.get('extra',{}).get('severity','INFO').upper()}'>{r.get('extra',{}).get('severity','')}</span></td>"
-        f"<td><code>{r.get('check_id','').split('.')[-1]}</code></td>"
-        f"<td><code>{r.get('path','').replace('/mnt/f/ERP-Audit-Lab/repo/','')}:{r.get('start',{}).get('line','')}</code></td>"
-        f"<td>{r.get('extra',{}).get('message','')}</td></tr>"
+        f"<tr><td><span class='sev-{r['severity']}'>{r['severity']}</span></td>"
+        f"<td><code>{r['rule_id']}</code></td>"
+        f"<td><code>{r['path']}:{r['line']}</code></td>"
+        f"<td>{r['message']}</td>"
+        f"<td>{r['solution']}</td></tr>"
         for r in d["semgrep"][:60]
-    ) or "<tr><td colspan='4'>Không có phát hiện SAST.</td></tr>"
+    ) or "<tr><td colspan='5'>Không phát hiện lỗ hổng SAST.</td></tr>"
 
     sec_rows = "".join(
-        f"<tr><td>{g.get('RuleID','')}</td><td><code>{g.get('File','').replace('/mnt/f/ERP-Audit-Lab/repo/','')}</code></td><td>{g.get('StartLine','')}</td></tr>"
+        f"<tr><td><span class='sev-CRITICAL'>CRITICAL</span></td><td>{g.get('RuleID','')}</td>"
+        f"<td><code>{g.get('File','').replace('/mnt/f/ERP-Audit-Lab/repo/','').replace('/mnt/f/ERP-Audit-Lab/targets/','')}</code></td>"
+        f"<td>{g.get('StartLine','')}</td><td>{REMEDIATION_KB['hardcoded']}</td></tr>"
         for g in d["gitleaks"][:40]
-    ) or "<tr><td colspan='3'>Không phát hiện lộ thông tin bí mật.</td></tr>"
+    ) or "<tr><td colspan='5'>Không phát hiện lộ thông tin bí mật.</td></tr>"
+
+    trivy_rows = "".join(
+        f"<tr><td><span class='sev-{t['severity']}'>{t['severity']}</span></td><td><code>{t['id']}</code></td>"
+        f"<td><code>{t['target']}</code> ({t['installed']})</td><td><code>{t['fixed']}</code></td><td>{t['solution']}</td></tr>"
+        for t in d["trivy"][:40]
+    ) or "<tr><td colspan='5'>Không phát hiện lỗ hổng thư viện/cấu hình Trivy.</td></tr>"
 
     ai_html = ""
     for label, txt in d["md_sections"]:
@@ -212,40 +303,51 @@ def export_pdf(report_dir: Path, out_pdf: Path) -> Path:
 <html lang="vi"><head><meta charset="utf-8">
 <title>Báo Cáo Kiểm Toán Bảo Mật — {d['folder']}</title>
 <style>
-@page {{ size: A4; margin: 16mm 14mm; }}
-body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; font-size: 11px; line-height: 1.5; margin: 0; }}
-.cover {{ border-bottom: 3px solid #0284c7; padding-bottom: 12px; margin-bottom: 16px; }}
-.cover h1 {{ margin: 0; font-size: 20px; color: #0f172a; }}
-.cover .sub {{ color: #475569; font-size: 12px; margin-top: 4px; }}
-.kpis {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0 18px; }}
-.kpi {{ border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; background: #f8fafc; }}
-.kpi .num {{ font-size: 22px; font-weight: 700; color: #0284c7; }}
-.kpi .num.red {{ color: #dc2626; }} .kpi .num.org {{ color: #d97706; }}
-.kpi .lbl {{ font-size: 10px; color: #475569; margin-top: 2px; }}
-h2 {{ font-size: 14px; color: #0369a1; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 18px; }}
-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; }}
+@page {{ size: A4; margin: 14mm 12mm; }}
+body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; font-size: 10.5px; line-height: 1.5; margin: 0; }}
+.cover {{ border-bottom: 3px solid #0284c7; padding-bottom: 10px; margin-bottom: 14px; }}
+.cover h1 {{ margin: 0; font-size: 19px; color: #0f172a; }}
+.cover .sub {{ color: #475569; font-size: 11.5px; margin-top: 4px; }}
+.kpis {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0 16px; }}
+.kpi {{ border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px; background: #f8fafc; }}
+.kpi .num {{ font-size: 20px; font-weight: 700; color: #0284c7; }}
+.kpi .num.red {{ color: #dc2626; }} .kpi .num.org {{ color: #ea580c; }} .kpi .num.yel {{ color: #ca8a04; }}
+.kpi .lbl {{ font-size: 9.5px; color: #475569; margin-top: 2px; }}
+h2 {{ font-size: 13.5px; color: #0369a1; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-top: 16px; }}
+table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 9.5px; }}
 th, td {{ border: 1px solid #cbd5e1; padding: 5px 6px; text-align: left; vertical-align: top; word-break: break-word; }}
 th {{ background: #0f172a; color: #ffffff; }}
-.sev-ERROR {{ background: #fee2e2; color: #b91c1c; padding: 2px 5px; border-radius: 4px; font-weight: 700; }}
-.sev-WARNING {{ background: #fef3c7; color: #b45309; padding: 2px 5px; border-radius: 4px; font-weight: 700; }}
-code {{ background: #f1f5f9; padding: 1px 3px; border-radius: 3px; font-family: Consolas, monospace; font-size: 9.5px; }}
-pre {{ background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px; border-radius: 6px; overflow: hidden; white-space: pre-wrap; font-size: 9px; }}
+.sev-CRITICAL {{ background: #fee2e2; color: #991b1b; padding: 2px 5px; border-radius: 4px; font-weight: 700; display: inline-block; }}
+.sev-HIGH {{ background: #ffedd5; color: #c2410c; padding: 2px 5px; border-radius: 4px; font-weight: 700; display: inline-block; }}
+.sev-MEDIUM {{ background: #fef9c3; color: #a16207; padding: 2px 5px; border-radius: 4px; font-weight: 700; display: inline-block; }}
+.sev-LOW {{ background: #e0f2fe; color: #0369a1; padding: 2px 5px; border-radius: 4px; font-weight: 700; display: inline-block; }}
+.plan-box {{ background: #f8fafc; border-left: 4px solid #0284c7; padding: 8px 12px; margin: 10px 0 14px; font-size: 10px; }}
+code {{ background: #f1f5f9; padding: 1px 3px; border-radius: 3px; font-family: Consolas, monospace; font-size: 9px; }}
+pre {{ background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px; border-radius: 6px; overflow: hidden; white-space: pre-wrap; font-size: 8.5px; }}
 .page-break {{ page-break-before: always; }}
 </style></head><body>
 <div class="cover">
-  <h1>BÁO CÁO KIỂM TOÁN BẢO MẬT HỆ THỐNG (AI SECURITY AUDIT)</h1>
-  <div class="sub">Đợt kiểm toán: <b>{d['folder']}</b> &nbsp;|&nbsp; Ngày xuất báo cáo: <b>{d['generated_at']}</b> &nbsp;|&nbsp; Phân loại: Nội bộ — Bảo mật</div>
+  <h1>BÁO CÁO KIỂM TOÁN BẢO MẬT HỆ THỐNG (AI SECURITY AUDIT v3.0)</h1>
+  <div class="sub">Đợt kiểm toán: <b>{d['folder']}</b> &nbsp;|&nbsp; Ngày xuất: <b>{d['generated_at']}</b> &nbsp;|&nbsp; Phân loại: Nội bộ — Bảo mật</div>
 </div>
 <div class="kpis">
-  <div class="kpi"><div class="num red">{d['kpi']['sast_critical_error']}</div><div class="lbl">SAST Nghiêm trọng (ERROR)</div></div>
-  <div class="kpi"><div class="num org">{d['kpi']['sast_warning']}</div><div class="lbl">SAST Cảnh báo (WARNING)</div></div>
-  <div class="kpi"><div class="num red">{d['kpi']['secrets_total']}</div><div class="lbl">Lộ Secret / Key (Gitleaks)</div></div>
-  <div class="kpi"><div class="num">{d['kpi']['sca_crit_high']} / {d['kpi']['sca_total']}</div><div class="lbl">Trivy Critical-High / Tổng SCA</div></div>
+  <div class="kpi"><div class="num red">{d['kpi']['sast_critical']} / {d['kpi']['sast_high']}</div><div class="lbl">SAST Critical / High</div></div>
+  <div class="kpi"><div class="num yel">{d['kpi']['sast_medium']} / {d['kpi']['sast_low']}</div><div class="lbl">SAST Medium / Low</div></div>
+  <div class="kpi"><div class="num red">{d['kpi']['secrets_total']}</div><div class="lbl">Lộ Secret / Key (Critical)</div></div>
+  <div class="kpi"><div class="num org">{d['kpi']['sca_crit_high']} / {d['kpi']['sca_total']}</div><div class="lbl">Trivy Critical-High / Tổng SCA</div></div>
 </div>
-<h2>1. Tổng Hợp Phát Hiện Mã Nguồn &amp; Cấu Hình (Semgrep SAST)</h2>
-<table><thead><tr><th style="width:10%">Mức độ</th><th style="width:24%">Mã Rule</th><th style="width:30%">Vị trí</th><th>Mô tả</th></tr></thead><tbody>{sast_rows}</tbody></table>
-<h2>2. Phát Hiện Thông Tin Nhạy Cảm (Gitleaks — Đã Che Giá Trị)</h2>
-<table><thead><tr><th style="width:22%">Loại Secret</th><th>File</th><th style="width:10%">Dòng</th></tr></thead><tbody>{sec_rows}</tbody></table>
+<div class="plan-box">
+  <b>Lộ Trình Khắc Phục Ưu Tiên (Remediation Roadmap):</b><br>
+  • <b>P0 (Khẩn cấp 24 giờ):</b> Xử lý toàn bộ lỗi <b>CRITICAL</b> &amp; <b>Lộ Secret</b> (xoay vòng mật khẩu/key, bật ModSecurity Virtual Patch chặn tạm trên WAF).<br>
+  • <b>P1 (Trong 7 ngày):</b> Vá các lỗi <b>HIGH / MEDIUM</b> trong mã nguồn, gỡ <code>network_mode: host</code>, nâng cấp các gói thư viện có CVE.<br>
+  • <b>P2 (Định kỳ 30 ngày):</b> Chuẩn hóa hardening mức <b>LOW</b>, cập nhật bản vá OS/CIS Benchmark và chạy quét hồi quy.
+</div>
+<h2>1. Tổng Hợp Phát Hiện Mã Nguồn &amp; Giải Pháp Vá (Semgrep SAST)</h2>
+<table><thead><tr><th style="width:9%">Mức độ</th><th style="width:19%">Mã Rule</th><th style="width:23%">Vị trí</th><th style="width:22%">Mô tả</th><th>Giải pháp khắc phục (Solution)</th></tr></thead><tbody>{sast_rows}</tbody></table>
+<h2>2. Phát Hiện Thông Tin Nhạy Cảm &amp; Giải Pháp (Gitleaks — Đã Che Giá Trị)</h2>
+<table><thead><tr><th style="width:9%">Mức độ</th><th style="width:18%">Loại Secret</th><th style="width:30%">File</th><th style="width:7%">Dòng</th><th>Giải pháp khắc phục (Solution)</th></tr></thead><tbody>{sec_rows}</tbody></table>
+<h2>3. Lỗ Hổng Thư Viện &amp; Sai Cấu Hình (Trivy SCA &amp; Misconfig)</h2>
+<table><thead><tr><th style="width:9%">Mức độ</th><th style="width:16%">CVE / Mã lỗi</th><th style="width:25%">Gói / Tệp</th><th style="width:15%">Bản vá</th><th>Giải pháp khắc phục (Solution)</th></tr></thead><tbody>{trivy_rows}</tbody></table>
 {ai_html}
 </body></html>"""
 

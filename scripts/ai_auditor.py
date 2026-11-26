@@ -9,8 +9,10 @@ import urllib.request
 from pathlib import Path
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-AUDIT_MODEL = os.environ.get("AUDIT_MODEL", "qwen3:30b-a3b")
+AUDIT_MODEL = os.environ.get("AUDIT_MODEL", "qwen3-vl:8b")
 CRITIC_MODEL = os.environ.get("CRITIC_MODEL", "deepseek-r1:14b")
+
+SKIP_DIRS = {"node_modules", ".next", "vendor", ".git", ".cache", "__pycache__", "dist", "build", "uploads", "storage", "site-packages"}
 
 SECRET_PATTERNS = [
     (re.compile(r'(?i)(password|pwd|secret|apikey|api_key|token|connectionstring)\s*[:=]\s*["\']?([^"\';\r\n]{4,})["\']?'), r'\1=***REDACTED***'),
@@ -23,7 +25,7 @@ def redact(text: str) -> str:
         text = pat.sub(rep, text)
     return text
 
-def call_ollama(model: str, system_prompt: str, user_prompt: str, timeout: int = 300) -> str:
+def call_ollama(model: str, system_prompt: str, user_prompt: str, timeout: int = 360) -> str:
     payload = {
         "model": model,
         "messages": [
@@ -42,66 +44,60 @@ def call_ollama(model: str, system_prompt: str, user_prompt: str, timeout: int =
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
         content = data.get("message", {}).get("content", "")
-        # Strip <think>...</think> blocks from reasoning models for clean final report
         content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
         return content
 
 def safe_iter_files(base: Path, exts: tuple):
     for root, dirs, files in os.walk(str(base), followlinks=False):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for fn in sorted(files):
             fp = Path(root) / fn
-            if fp.suffix.lower() not in exts:
+            if exts and fp.suffix.lower() not in exts and fp.name.lower() not in exts:
                 continue
             try:
                 if fp.is_symlink():
                     continue
                 st = fp.stat()
-                if st.st_size > 2 * 1024 * 1024:
+                if st.st_size > 1_500_000:
                     continue
             except OSError:
                 continue
             yield fp
 
 def collect_attack_surface(repo_dir: Path, out_file: Path) -> str:
-    sections = []
     patterns = [
-        ("API Endpoints & Auth Attributes (`[Http*]`, `[AllowAnonymous]`, `[Authorize]`)",
-         ["api/decompiled"], re.compile(r"\[(?:HttpGet|HttpPost|HttpPut|HttpDelete|Route|AllowAnonymous|Authorize)[^\]]*\]")),
-        ("ASP.NET WebServices & Handlers (`.asmx`, `.ashx`, `[WebMethod]`)",
-         ["app-erp", "app-hrm"], re.compile(r"\[WebMethod|ProcessRequest\(|IHttpHandler")),
-        ("Dynamic SQL & Database Sinks (`SqlCommand`, `FromSqlRaw`, `ExecuteSqlRaw`, `CommandText`)",
-         ["api/decompiled", "app-erp/decompiled", "app-hrm/decompiled"], re.compile(r"SqlCommand|FromSqlRaw|ExecuteSqlRaw|CommandText\s*=|SqlDataAdapter")),
-        ("File Upload / Download & Path Operations (`IFormFile`, `SaveAs`, `fsdUpload`, `WriteAllBytes`, `TransmitFile`)",
-         ["api/decompiled", "app-erp/decompiled", "app-hrm/decompiled"], re.compile(r"IFormFile|SaveAs\(|fsdUpload|WriteAllBytes|TransmitFile|WriteFile\(")),
-        ("Nginx Reverse Proxy & WAF Exclusions (`proxy_pass`, `SecRuleRemoveById`, `location`)",
-         ["nginx"], re.compile(r"proxy_pass|SecRuleRemoveById|location\s+")),
+        ("API Endpoints & Auth Routes (`.NET / Node / Next.js / Python / PHP`)",
+         (".cs", ".ts", ".tsx", ".js", ".py", ".php"),
+         re.compile(r"\[(?:HttpGet|HttpPost|HttpPut|HttpDelete|Route|AllowAnonymous|Authorize)[^\]]*\]|app\.(?:get|post|put|delete)\(|router\.(?:get|post)|@(?:app|router)\.(?:get|post|put|delete)|export\s+async\s+function\s+(?:GET|POST|PUT|DELETE)|wp_ajax_")),
+        ("Database & Injection Sinks (`SQL / NoSQL / Shell Exec`)",
+         (".cs", ".ts", ".js", ".py", ".php"),
+         re.compile(r"SqlCommand|FromSqlRaw|ExecuteSqlRaw|CommandText\s*=|\$where|child_process|execSync|subprocess\.|os\.system|shell_exec|wpdb->query")),
+        ("File Upload, Download & SSRF Sinks",
+         (".cs", ".ts", ".js", ".py", ".php"),
+         re.compile(r"IFormFile|SaveAs\(|WriteAllBytes|TransmitFile|multer|fsdUpload|axios\(|fetch\(|requests\.(?:get|post)|curl_exec")),
+        ("Reverse Proxy, Container & DB Configs (`Nginx / HAProxy / Docker / DB`)",
+         (".conf", ".yml", ".yaml", ".json", ".config", "dockerfile"),
+         re.compile(r"proxy_pass|SecRuleRemoveById|network_mode|privileged|docker\.sock|bindIp|0\.0\.0\.0|mcpServers")),
     ]
 
-    lines = ["# Attack Surface Map — Target System\n"]
-    for title, subdirs, regex in patterns:
+    lines = ["# Attack Surface Map — Multi-Stack Target System\n"]
+    for title, exts, regex in patterns:
         hits = []
-        for sub in subdirs:
-            base = repo_dir / sub
-            if not base.exists():
+        for fp in safe_iter_files(repo_dir, exts):
+            try:
+                txt = fp.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
                 continue
-            for fp in safe_iter_files(base, (".cs", ".aspx", ".asmx", ".ashx", ".conf", ".config", ".json")):
-                try:
-                    txt = fp.read_text(encoding="utf-8", errors="ignore")
-                except Exception:
-                    continue
-                for idx, ln in enumerate(txt.splitlines(), 1):
-                    if regex.search(ln):
-                        rel = fp.relative_to(repo_dir).as_posix()
-                        hits.append(f"- `{rel}:{idx}` — `{redact(ln.strip())[:160]}`")
-                        if len(hits) >= 60:
-                            break
-                if len(hits) >= 60:
-                    break
-        lines.append(f"\n## {title} (hiển thị tối đa 60 kết quả đầu)\n")
-        if hits:
-            lines.extend(hits)
-        else:
-            lines.append("- *(Không tìm thấy mẫu khớp)*")
+            for idx, ln in enumerate(txt.splitlines(), 1):
+                if regex.search(ln):
+                    rel = fp.relative_to(repo_dir).as_posix()
+                    hits.append(f"- `{rel}:{idx}` — `{redact(ln.strip())[:160]}`")
+                    if len(hits) >= 50:
+                        break
+            if len(hits) >= 50:
+                break
+        lines.append(f"\n## {title} (tối đa 50 mẫu đầu)\n")
+        lines.extend(hits if hits else ["- *(Không tìm thấy mẫu khớp trong thư mục mục tiêu)*"])
     report = "\n".join(lines) + "\n"
     out_file.write_text(report, encoding="utf-8")
     return report
@@ -120,20 +116,17 @@ def load_semgrep_summary(semgrep_json: Path) -> str:
     for r in results[:40]:
         path = r.get("path", "")
         line = r.get("start", {}).get("line", 0)
-        cid = r.get("check_id", "")
+        cid = r.get("check_id", "").split(".")[-1]
         sev = r.get("extra", {}).get("severity", "INFO")
         msg = r.get("extra", {}).get("message", "")
         code = redact(r.get("extra", {}).get("lines", "").strip())[:160]
         out.append(f"- [{sev}] `{cid}` @ `{path}:{line}` — {msg} | Code: `{code}`")
     return "\n".join(out)
 
-def load_code_snippets(repo_dir: Path, subdir: str, keyword_re: str, max_files: int = 8, max_chars_per_file: int = 3000) -> str:
-    base = repo_dir / subdir
-    if not base.exists():
-        return ""
+def load_code_snippets(repo_dir: Path, exts: tuple, keyword_re: str, max_files: int = 6, max_chars_per_file: int = 2400) -> str:
     pat = re.compile(keyword_re, re.IGNORECASE)
     chunks = []
-    for fp in safe_iter_files(base, (".cs", ".conf", ".config", ".aspx", ".ashx")):
+    for fp in safe_iter_files(repo_dir, exts):
         try:
             txt = fp.read_text(encoding="utf-8", errors="ignore")
         except Exception:
@@ -146,46 +139,70 @@ def load_code_snippets(repo_dir: Path, subdir: str, keyword_re: str, max_files: 
     return "\n\n".join(chunks)
 
 def run_full_audit(repo_dir: Path, report_dir: Path):
-    print("[AI-Auditor] Step 1/3: Building Attack Surface Map...", flush=True)
-    surface = collect_attack_surface(repo_dir, report_dir / "04_attack_surface_map.md")
+    print("[AI-Auditor v3.0] [1/3] Building Multi-Stack Attack Surface Map...", flush=True)
+    collect_attack_surface(repo_dir, report_dir / "04_attack_surface_map.md")
     semgrep_sum = load_semgrep_summary(report_dir / "03_semgrep_sast.json")
 
+    # 10 Multi-Stack Auto-Adaptive Playbooks (chỉ chạy các Playbook có file thực tế khớp!)
     playbooks = [
-        ("Playbook 1: Broken Auth, IDOR & Missing Authorization (API & ERP)",
-         "api/decompiled", r"AllowAnonymous|Authorize|Controller|Jwt|Login|CustomerCode|idCheckIn"),
-        ("Playbook 2: SQL Injection & Dynamic SQL (API & APP-ERP)",
-         "api/decompiled", r"SqlCommand|FromSqlRaw|ExecuteSqlRaw|CommandText|SqlConnection"),
-        ("Playbook 3: File Upload, Download & Path Traversal (fsdUpload / Export)",
-         "api/decompiled", r"fsdUpload|IFormFile|SaveAs|WriteAllBytes|FileStream|Path\.Combine"),
-        ("Playbook 4: Legacy .NET, Deserialization & Config Hardening (APP-ERP)",
-         "app-erp/decompiled", r"BinaryFormatter|TypeNameHandling|Process\.Start|ValidateRequest|machineKey|SqlCommand"),
-        ("Playbook 5: Nginx <-> IIS Desync & WAF Exclusion Review",
-         "nginx", r"proxy_pass|SecRuleRemoveById|location|upstream"),
+        ("Playbook 1: Auth, Session, JWT, RBAC & IDOR/BOLA",
+         (".cs", ".ts", ".tsx", ".js", ".py", ".php"),
+         r"AllowAnonymous|Authorize|Jwt|jwt\.sign|verify|Login|Session|Role|CustomerCode|req\.user|current_user"),
+        ("Playbook 2: Injection (SQLi, NoSQLi MongoDB, Command Injection, SSTI)",
+         (".cs", ".ts", ".js", ".py", ".php"),
+         r"SqlCommand|FromSqlRaw|ExecuteSqlRaw|CommandText|\$where|child_process|execSync|subprocess|os\.system|wpdb->query|eval\("),
+        ("Playbook 3: File Upload, Path Traversal, SSRF & XXE",
+         (".cs", ".ts", ".js", ".py", ".php"),
+         r"IFormFile|SaveAs|WriteAllBytes|TransmitFile|Path\.Combine|multer|fsdUpload|axios\(|requests\.get|curl_exec|XmlDocument"),
+        ("Playbook 4: Deserialization, XSS, Prototype Pollution & Supply-Chain",
+         (".cs", ".ts", ".tsx", ".js", ".py", ".config", ".json"),
+         r"BinaryFormatter|TypeNameHandling|dangerouslySetInnerHTML|innerHTML|pickle\.loads|yaml\.load\(|ValidateRequest|machineKey"),
+        ("Playbook 5: Reverse Proxy, WAF, TLS & CORS (Nginx / HAProxy / IIS)",
+         (".conf", ".config", ".cfg"),
+         r"proxy_pass|SecRuleRemoveById|Access-Control-Allow-Origin|ssl_protocols|location\s+|customErrors|applicationHost"),
+        ("Playbook 6: Container, Docker Compose & Secrets Hygiene",
+         (".yml", ".yaml", "dockerfile", ".env"),
+         r"network_mode|privileged|docker\.sock|ports:|image:|FROM\s+"),
+        ("Playbook 7: Database & Cache Hardening (MSSQL / PG / MySQL / MongoDB / Redis)",
+         (".conf", ".cnf", ".ini", ".sql", ".yml", ".yaml"),
+         r"bindIp|pg_hba|requirepass|xp_cmdshell|listen_addresses|authorization:|0\.0\.0\.0"),
+        ("Playbook 8: OS, CIS Benchmark & MITRE ATT&CK Persistence Audit",
+         (".md",),
+         r"Live System|CIS|MITRE|PermitRootLogin|Unquoted Service|SUID|Listening"),
+        ("Playbook 9: AI / MCP Server & Prompt Injection Security",
+         (".json", ".ts", ".js", ".py"),
+         r"mcpServers|ModelContextProtocol|tool_call|stdio|fastmcp|@mcp\.tool"),
+        ("Playbook 10: WordPress / CMS & Next.js Specific Security",
+         (".php", ".ts", ".tsx", ".js", ".mjs"),
+         r"wp-config|DISALLOW_FILE_EDIT|xmlrpc|next\.config|middleware\.ts|use server|getServerSideProps"),
     ]
 
     sys_auditor = (
-        "Bạn là Chuyên gia Bảo mật Ứng dụng (Principal AppSec Engineer) thực hiện kiểm toán mã nguồn phòng thủ (White-Box Defensive Code Audit) "
-        "cho hệ thống ERP nội bộ. Trả lời bằng tiếng Việt rõ ràng, chính xác. "
-        "CHỈ báo cáo lỗ hổng có bằng chứng trực tiếp trong đoạn code được cung cấp (nêu rõ tên file, hàm/dòng, nguyên nhân, mức độ Critical/High/Medium, "
-        "cách sửa code cụ thể, và đề xuất rule ModSecurity Virtual Patch nếu cần). KHÔNG bịa đặt code không có trong ngữ cảnh."
+        "Bạn là Chuyên gia Bảo mật Ứng dụng & Hạ tầng (Principal AppSec/SecOps Engineer) thực hiện kiểm toán phòng thủ. "
+        "Trả lời bằng tiếng Việt rõ ràng, chính xác, chuyên nghiệp. "
+        "CHỈ báo cáo lỗ hổng có bằng chứng trực tiếp trong đoạn code/cấu hình được cung cấp: nêu rõ tên file, dòng/hàm, "
+        "xếp hạng chuẩn CRITICAL / HIGH / MEDIUM / LOW (không dùng WARNING/ERROR), nguyên nhân, "
+        "**Giải pháp vá lỗi cụ thể (Solution / Code hoặc Config mẫu)**, và đề xuất ModSecurity WAF rule nếu phù hợp. KHÔNG bịa đặt."
     )
 
     draft_findings = []
-    print(f"[AI-Auditor] Step 2/3: Running 5 Deep Audit Playbooks with {AUDIT_MODEL}...", flush=True)
-    for title, subdir, kw in playbooks:
-        snippets = load_code_snippets(repo_dir, subdir, kw, max_files=6, max_chars_per_file=2600)
-        if not snippets:
-            draft_findings.append(f"## {title}\n- Không tìm thấy file khớp từ khóa trong `{subdir}`.\n")
-            continue
+    active_pbs = []
+    for title, exts, kw in playbooks:
+        snippets = load_code_snippets(repo_dir, exts, kw, max_files=5, max_chars_per_file=2200)
+        if snippets:
+            active_pbs.append((title, snippets))
+
+    total_pb = max(1, len(active_pbs))
+    print(f"[AI-Auditor v3.0] [2/3] Detected {len(active_pbs)}/10 applicable Playbooks — running with {AUDIT_MODEL}...", flush=True)
+    for idx, (title, snippets) in enumerate(active_pbs, 1):
         prompt = (
-            f"Hãy thực hiện **{title}** trên các file thực tế sau đây.\n\n"
-            f"### Tóm tắt Semgrep liên quan:\n{semgrep_sum[:2500]}\n\n"
+            f"Hãy thực hiện **{title}** trên các tệp thực tế sau đây.\n\n"
+            f"### Tóm tắt Semgrep liên quan:\n{semgrep_sum[:2000]}\n\n"
             f"### Mã nguồn / Cấu hình thực tế (đã che secret):\n{snippets}\n\n"
-            f"Hãy liệt kê các lỗ hổng bảo mật thực tế (tập trung vào lỗi logic, IDOR, SQLi, Path Traversal, Deserialization, cấu hình sai) "
-            f"kèm đề xuất sửa lỗi & rule ModSecurity WAF nếu phù hợp."
+            f"Hãy liệt kê các lỗ hổng thực tế theo chuẩn **CRITICAL / HIGH / MEDIUM / LOW**, kèm **Giải pháp vá (Solution)** cụ thể."
         )
         t0 = time.time()
-        print(f"  -> Auditing: {title} ...", flush=True)
+        print(f"  -> [{idx}/{total_pb}] Auditing: {title} ...", flush=True)
         try:
             res = call_ollama(AUDIT_MODEL, sys_auditor, prompt, timeout=900)
         except Exception as e:
@@ -193,16 +210,18 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
         print(f"     Done in {time.time()-t0:.1f}s", flush=True)
         draft_findings.append(f"## {title}\n\n{res}\n")
 
+    if not draft_findings:
+        draft_findings.append("## Tổng quan\n- Không tìm thấy tệp mã nguồn hoặc cấu hình khớp với 10 Playbook.\n")
     combined_draft = "\n---\n".join(draft_findings)
 
-    print(f"[AI-Auditor] Step 3/3: Running Critic / False-Positive Filter Agent with {CRITIC_MODEL}...", flush=True)
+    print(f"[AI-Auditor v3.0] [3/3] Running Critic / False-Positive Filter Agent with {CRITIC_MODEL}...", flush=True)
     sys_critic = (
         "Bạn là Chuyên gia Phản biện Bảo mật (Security Critic & Triage Lead). "
-        "Nhiệm vụ của bạn là đọc bản nháp kiểm toán từ Agent 1, LOẠI BỎ các cảnh báo giả/chung chung không có bằng chứng file cụ thể, "
-        "và xuất ra **Báo Cáo Điều Hành (Executive Summary & Prioritized Action Plan)** bằng tiếng Việt: "
-        "1) Top phát hiện Critical/High xác thực nhất (xếp hạng ưu tiên P0/P1/P2), "
-        "2) Hướng dẫn vá nhanh bằng ModSecurity Virtual Patch (nếu cần), "
-        "3) Danh sách việc cần yêu cầu đội Dev/SSE sửa trong code."
+        "Đọc bản nháp kiểm toán từ Agent 1, LOẠI BỎ các cảnh báo giả/chung chung không có bằng chứng cụ thể, "
+        "và xuất ra **Báo Cáo Điều Hành (Executive Summary & Prioritized Remediation Plan)** bằng tiếng Việt chuẩn mực gồm:\n"
+        "1) Bảng tổng hợp Top phát hiện xác thực nhất theo chuẩn **CRITICAL / HIGH / MEDIUM / LOW** (ưu tiên P0 / P1 / P2);\n"
+        "2) **Giải pháp vá lỗi chi tiết (Solutions)** cho từng vấn đề (code/config cụ thể + ModSecurity Virtual Patch nếu cần);\n"
+        "3) Checklist bàn giao cho đội Dev & SysAdmin."
     )
     try:
         critic_summary = call_ollama(CRITIC_MODEL, sys_critic, combined_draft[:28000], timeout=900)
@@ -210,22 +229,23 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
         critic_summary = f"Lỗi gọi Critic model ({CRITIC_MODEL}): {e}"
 
     final_md = (
-        f"# Báo Cáo AI Deep Code Audit (100% On-Premise)\n\n"
+        f"# Báo Cáo AI Deep Security Audit v3.0 (100% On-Premise)\n\n"
         f"- **Audit Model:** `{AUDIT_MODEL}` | **Critic Model:** `{CRITIC_MODEL}`\n"
+        f"- **Playbooks thực thi:** {len(active_pbs)}/10 Multi-Stack Playbooks (Tự động nhận diện)\n"
         f"- **Workspace:** `{repo_dir}` (Read-Only Analysis)\n\n"
         f"---\n\n"
-        f"# PHẦN I: TỔNG HỢP PHẢN BIỆN & ƯU TIÊN HÀNH ĐỘNG (CRITIC AGENT)\n\n"
+        f"# PHẦN I: TỔNG HỢP PHẢN BIỆN & GIẢI PHÁP ƯU TIÊN (CRITIC AGENT)\n\n"
         f"{critic_summary}\n\n"
         f"---\n\n"
-        f"# PHẦN II: CHI TIẾT PHÂN TÍCH THEO 5 PLAYBOOK\n\n"
+        f"# PHẦN II: CHI TIẾT PHÂN TÍCH THEO PLAYBOOK\n\n"
         f"{combined_draft}\n"
     )
     out_md = report_dir / "05_ai_deep_audit_report.md"
     out_md.write_text(final_md, encoding="utf-8")
-    print(f"[AI-Auditor] SAVED: {out_md}", flush=True)
+    print(f"[AI-Auditor v3.0] SAVED: {out_md}", flush=True)
 
 def run_patch_diff_audit(repo_dir: Path, report_dir: Path, old_ref: str, new_ref: str):
-    print(f"[AI-Auditor] Running Patch-Diff & Variant Analysis: {old_ref}..{new_ref}", flush=True)
+    print(f"[AI-Auditor v3.0] Running Patch-Diff & Variant Analysis: {old_ref}..{new_ref}", flush=True)
     proc = subprocess.run(
         ["git", "-C", str(repo_dir), "diff", "--unified=5", f"{old_ref}..{new_ref}"],
         capture_output=True, text=True, encoding="utf-8", errors="ignore"
@@ -234,41 +254,36 @@ def run_patch_diff_audit(repo_dir: Path, report_dir: Path, old_ref: str, new_ref
     if not diff_txt.strip():
         msg = f"# Báo Cáo Patch-Diff ({old_ref}..{new_ref})\n\nKhông có thay đổi mã nguồn giữa `{old_ref}` và `{new_ref}`.\n"
         (report_dir / "06_patch_diff_audit.md").write_text(msg, encoding="utf-8")
-        print("[AI-Auditor] Empty diff.", flush=True)
         return
-
     sys_diff = (
         "Bạn là Chuyên gia Patch-Diff & Variant Analysis (AppSec). Trả lời bằng tiếng Việt. "
-        "Từ bản git diff giữa 2 phiên bản ERP/API/Nginx, hãy phân tích 2 nội dung:\n"
-        "1) **Security Regression:** Bản mới có vô tình tắt auth, mở lỗ hổng SQLi/IDOR/Path Traversal hay lộ thông tin nhạy cảm mới không?\n"
-        "2) **Variant Analysis:** Nếu bản mới vừa vá 1 lỗ hổng bảo mật, hãy nêu rõ mẫu lỗi (pattern) để quét tìm các biến thể tương tự chưa được vá ở file khác."
+        "Từ bản git diff giữa 2 phiên bản, phân tích: 1) Security Regression (CRITICAL/HIGH/MEDIUM/LOW), "
+        "2) Variant Analysis (mẫu lỗi để săn biến thể), 3) Giải pháp khắc phục (Solutions)."
     )
     res = call_ollama(CRITIC_MODEL, sys_diff, f"```diff\n{diff_txt[:28000]}\n```", timeout=900)
-    out_md = report_dir / "06_patch_diff_audit.md"
-    out_md.write_text(f"# Báo Cáo Patch-Diff & Variant Analysis (`{old_ref}` -> `{new_ref}`)\n\n{res}\n", encoding="utf-8")
-    print(f"[AI-Auditor] SAVED: {out_md}", flush=True)
+    (report_dir / "06_patch_diff_audit.md").write_text(f"# Báo Cáo Patch-Diff & Variant Analysis (`{old_ref}` -> `{new_ref}`)\n\n{res}\n", encoding="utf-8")
 
 def run_system_audit(repo_dir: Path, report_dir: Path):
-    print(f"[AI-Auditor] Running Live System & Config Security Audit with {AUDIT_MODEL}...", flush=True)
+    print(f"[AI-Auditor v3.0] Running CIS & MITRE ATT&CK System Audit with {AUDIT_MODEL}...", flush=True)
     snap = repo_dir / "live_system_audit.md"
-    snap_txt = redact(snap.read_text(encoding="utf-8", errors="ignore"))[:22000] if snap.exists() else "No live_system_audit.md found."
+    snap_txt = redact(snap.read_text(encoding="utf-8", errors="ignore"))[:24000] if snap.exists() else "No live_system_audit.md found."
     semgrep_sum = load_semgrep_summary(report_dir / "03_semgrep_sast.json")
     sys_prompt = (
-        "Ban la Chuyen gia Bao mat He thong & Ha tang (Principal SecOps Engineer). "
-        "Hay phan tich bao cao hien trang he thong (OS/Hotfix, Firewall, Defender, Listening Ports, Local Admins, Installed Software, IIS/SQL/Docker) "
-        "va tra ve Bao Cao Kiem Toan Bao Mat bang tieng Viet co dau ro rang, chuyen nghiep gom: "
-        "1) Danh gia tong quan muc do an toan (Critical / High / Medium / Low); "
-        "2) Danh sach cac lo hong / diem yeu cu the tim thay (cong mo nguy hiem, Firewall tat, ban va thieu, phan mem cu, cau hinh RDP/SMB/SQL/IIS yeu); "
-        "3) Ke hoach khac phuc & Hardening uu tien theo thu tu P0 -> P1 -> P2 (kem lenh cau hinh cu the)."
+        "Bạn là Chuyên gia Bảo mật Hệ thống & Hạ tầng (Principal SecOps Engineer — CIS Benchmark & MITRE ATT&CK). "
+        "Hãy phân tích báo cáo hiện trạng hệ thống (OS/Hotfix, Firewall, Defender Exclusions, RDP/NLA, SMBv1, LSA/WDigest, "
+        "Unquoted Service Paths, SUID, Sudoers NOPASSWD, SSH/Sysctl, Listening Ports, IIS/SQL/Docker) và trả về Báo cáo tiếng Việt chuẩn gồm:\n"
+        "1) Đánh giá tổng quan theo mức chuẩn **CRITICAL / HIGH / MEDIUM / LOW**;\n"
+        "2) Danh sách lỗ hổng & dấu hiệu bất thường cụ thể (kèm mã CIS / MITRE nếu phù hợp);\n"
+        "3) **Giải pháp khắc phục & lệnh Hardening cụ thể (Solutions)** theo lộ trình ưu tiên P0 -> P1 -> P2."
     )
     user_prompt = f"### Hiện trạng hệ thống thực tế:\n{snap_txt}\n\n### Kết quả Semgrep SAST:\n{semgrep_sum[:3000]}"
     res = call_ollama(AUDIT_MODEL, sys_prompt, user_prompt, timeout=900)
     out_md = report_dir / "05_ai_deep_audit_report.md"
     out_md.write_text(
-        f"# Báo Cáo AI System Security Audit (100% On-Premise)\n\n- **Model:** `{AUDIT_MODEL}`\n\n---\n\n{res}\n",
+        f"# Báo Cáo AI CIS & MITRE System Security Audit v3.0 (100% On-Premise)\n\n- **Model:** `{AUDIT_MODEL}`\n\n---\n\n{res}\n",
         encoding="utf-8"
     )
-    print(f"[AI-Auditor] SAVED: {out_md}", flush=True)
+    print(f"[AI-Auditor v3.0] SAVED: {out_md}", flush=True)
 
 def main():
     ap = argparse.ArgumentParser()

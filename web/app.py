@@ -225,10 +225,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v2.5")
+app = FastAPI(title="AI Security Audit Platform v3.0")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.5</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v3.0</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -238,7 +238,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v2.5</h1>
+<h1>AI Security Audit v3.0</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -247,7 +247,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v2.5 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v3.0 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -301,9 +301,13 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .pbar-fill{height:100%;background:linear-gradient(90deg,#0284c7,#38bdf8);transition:width .35s}
 .pbar-fill.done{background:#22c55e}
 .pbar-fill.fail{background:#ef4444}
+.sev-CRITICAL{background:#7f1d1d;color:#fecaca;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
+.sev-HIGH{background:#7c2d12;color:#fed7aa;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
+.sev-MEDIUM{background:#713f12;color:#fef08a;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
+.sev-LOW{background:#0c4a6e;color:#bae6fd;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v2.5 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div><h1>AI Security Audit v3.0 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px"><span id="gpuPill" class="gpu-pill" title="Đang đọc thông số GPU..."><span class="gpu-dot"></span><span id="gpuText">GPU...</span></span><span id="ollamaBadge" class="badge">Đang kiểm tra Ollama...</span><a href="/logout" style="color:#94a3b8;margin-left:10px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -477,7 +481,8 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
         <div><label>Phân tích chéo bằng AI Local (Shadow API)?</label><select id="kAi"><option value="yes">Có — Phân tích bằng Ollama Local</option><option value="no">Không — Chỉ chạy Katana + httpx (~20 giây)</option></select></div>
         <div><label>Chọn Model AI phân tích Web Surface</label><select id="kModel"><option value="qwen3-vl:8b">qwen3-vl:8b</option></select></div>
       </div>
-      <button class="btn btn-ai" onclick="runKatanaScan()">Chạy Khám phá Bề mặt Web</button>
+      <div style="margin:6px 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kNuclei" checked style="width:auto"> Bật <b>ProjectDiscovery Nuclei (Safe Profile)</b> — Quét CVE Web, Misconfiguration, Exposed Panels (-severity critical,high,medium -rl 10)</label></div>
+      <button class="btn btn-ai" onclick="runKatanaScan()">Chạy Khám phá Bề mặt Web &amp; Nuclei</button>
     </div>
   </div>
 
@@ -886,8 +891,9 @@ async function runKatanaScan(){
   const name = document.getElementById('kName').value.trim() || 'web-surface';
   const depth = parseInt(document.getElementById('kDepth').value || '3');
   const with_ai = document.getElementById('kAi').value === 'yes';
+  const with_nuclei = document.getElementById('kNuclei') ? document.getElementById('kNuclei').checked : true;
   if(!url.startsWith('http')) return alert('Vui lòng nhập URL hợp lệ bắt đầu bằng http:// hoặc https://');
-  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
+  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai,with_nuclei, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
   const d = await r.json();
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
@@ -983,61 +989,93 @@ def api_rotate_token(request: Request):
 def download_win_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
-    script = f"""# AI Security Audit — Agentless Windows Security Collector (100% Read-Only)
+    script = f"""# AI Security Audit v3.0 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
 $ErrorActionPreference = 'SilentlyContinue'
 $hostName = $env:COMPUTERNAME
 $work = Join-Path $env:TEMP ("ace_audit_" + $hostName + "_" + (Get-Random))
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 
 $sb = New-Object System.Text.StringBuilder
-[void]$sb.AppendLine("# Windows Live Security Audit Snapshot ($hostName - $(Get-Date -Format 's'))")
-[void]$sb.AppendLine("`n## 1. OS Build & Recent Hotfixes")
 $cv = Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'
-[void]$sb.AppendLine("OS: $($cv.ProductName) Build=$($cv.CurrentBuild).$($cv.UBR)")
-[void]$sb.AppendLine((Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 15 HotFixID, InstalledOn | Out-String))
+[void]$sb.AppendLine("# Báo Cáo Hiện Trạng Windows & CIS/MITRE Audit ($hostName — $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))")
+[void]$sb.AppendLine("`n## 1. Hệ Điều Hành & Bản Vá (Hotfixes)")
+[void]$sb.AppendLine("| Thông số | Giá trị |")
+[void]$sb.AppendLine("|---|---|")
+[void]$sb.AppendLine("| **Hostname** | ``$hostName`` |")
+[void]$sb.AppendLine("| **OS** | $($cv.ProductName) (Build $($cv.CurrentBuild).$($cv.UBR)) |")
+[void]$sb.AppendLine("`n``````text")
+[void]$sb.AppendLine((Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 15 HotFixID, Description, InstalledOn | Format-Table -AutoSize | Out-String))
+[void]$sb.AppendLine("``````")
 
-[void]$sb.AppendLine("`n## 2. Windows Firewall & Defender")
-[void]$sb.AppendLine((Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction | Out-String))
-[void]$sb.AppendLine((Get-MpComputerStatus | Select-Object AntivirusEnabled, RealTimeProtectionEnabled, AntivirusSignatureLastUpdated | Out-String))
+[void]$sb.AppendLine("`n## 2. Windows Firewall, Defender & Exclusions (MITRE Defense Evasion)")
+[void]$sb.AppendLine("``````text")
+[void]$sb.AppendLine((Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction, DefaultOutboundAction | Format-Table -AutoSize | Out-String))
+[void]$sb.AppendLine((Get-MpComputerStatus | Select-Object AntivirusEnabled, RealTimeProtectionEnabled, BehaviorMonitorEnabled, AntivirusSignatureLastUpdated | Format-List | Out-String))
+$mp = Get-MpPreference
+[void]$sb.AppendLine("Defender ExclusionPath: " + (($mp.ExclusionPath) -join ', '))
+[void]$sb.AppendLine("Defender ExclusionProcess: " + (($mp.ExclusionProcess) -join ', '))
+[void]$sb.AppendLine("``````")
 
-[void]$sb.AppendLine("`n## 3. Listening TCP Ports")
-[void]$sb.AppendLine((Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort | Sort-Object LocalPort -Unique | Out-String))
+[void]$sb.AppendLine("`n## 3. CIS Hardening (RDP / NLA / SMBv1 / LSA / WDigest / UAC / PS Logging)")
+$rdp = (Get-ItemProperty 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server' -EA 0).fDenyTSConnections
+$nla = (Get-ItemProperty 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -EA 0).UserAuthentication
+$smb1 = (Get-SmbServerConfiguration -EA 0).EnableSMB1Protocol
+$ppl = (Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -EA 0).RunAsPPL
+$wdig = (Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest' -EA 0).UseLogonCredential
+$uac = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -EA 0).EnableLUA
+$pslog = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging' -EA 0).EnableScriptBlockLogging
+[void]$sb.AppendLine("| Kiểm tra CIS | Giá trị thực tế | Chuẩn khuyến nghị |")
+[void]$sb.AppendLine("|---|---|---|")
+[void]$sb.AppendLine("| **RDP Disabled** | ``$rdp`` | 1 (hoặc bật NLA) |")
+[void]$sb.AppendLine("| **RDP NLA** | ``$nla`` | 1 (Bắt buộc NLA) |")
+[void]$sb.AppendLine("| **SMBv1 Enabled** | ``$smb1`` | False |")
+[void]$sb.AppendLine("| **LSA Protection (RunAsPPL)** | ``$ppl`` | 1 |")
+[void]$sb.AppendLine("| **WDigest Plaintext** | ``$wdig`` | 0 hoặc trống |")
+[void]$sb.AppendLine("| **UAC (EnableLUA)** | ``$uac`` | 1 |")
+[void]$sb.AppendLine("| **PS ScriptBlock Logging** | ``$pslog`` | 1 |")
 
-[void]$sb.AppendLine("`n## 4. Local Administrators & Running DB/Web Services")
-[void]$sb.AppendLine((Get-LocalGroupMember -Group 'Administrators' | Select-Object Name, ObjectClass | Out-String))
-[void]$sb.AppendLine((Get-Service | Where-Object {{ $_.Name -match 'SQL|Mongo|Postgres|MySQL|W3SVC|Docker|Redis' }} | Select-Object Name, Status, StartType | Out-String))
+[void]$sb.AppendLine("`n## 4. Cổng Mạng Đang Mở (Listening TCP Ports)")
+[void]$sb.AppendLine("``````text")
+[void]$sb.AppendLine((Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort | Sort-Object LocalPort -Unique | Format-Table -AutoSize | Out-String))
+[void]$sb.AppendLine("``````")
 
-[void]$sb.AppendLine("`n## 5. IIS Websites & AppPools")
-Import-Module WebAdministration -ErrorAction SilentlyContinue
-[void]$sb.AppendLine((Get-Website | Select-Object Name, State, PhysicalPath | Out-String))
+[void]$sb.AppendLine("`n## 5. MITRE ATT&CK — Unquoted Service Paths, Local Admins & Scheduled Tasks")
+[void]$sb.AppendLine("``````text")
+[void]$sb.AppendLine("[Local Administrators]")
+[void]$sb.AppendLine((Get-LocalGroupMember -Group 'Administrators' | Select-Object Name, ObjectClass | Format-Table -AutoSize | Out-String))
+[void]$sb.AppendLine("[Unquoted Service Paths]")
+[void]$sb.AppendLine((Get-CimInstance Win32_Service | Where-Object {{ $_.PathName -and $_.PathName -notmatch '^"' -and $_.PathName -notmatch '^C:\\Windows\\' -and $_.PathName -match ' ' }} | Select-Object Name, State, PathName | Format-Table -AutoSize | Out-String))
+[void]$sb.AppendLine("[Non-Microsoft Active Scheduled Tasks (Temp/AppData/Shell)]")
+Get-ScheduledTask | Where-Object {{ $_.TaskPath -notlike '\\Microsoft\\*' -and $_.State -ne 'Disabled' }} | ForEach-Object {{
+  $act = ($_.Actions | ForEach-Object {{ "$($_.Execute) $($_.Arguments)" }}) -join '; '
+  if ($act -match 'Temp|AppData|Users|powershell|cmd\.exe|wscript|mshta') {{ [void]$sb.AppendLine("$($_.TaskName) -> $act") }}
+}}
+[void]$sb.AppendLine("``````")
 
-[void]$sb.AppendLine("`n## 6. Microsoft SQL Server Version & PatchLevel")
-Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server' -ErrorAction SilentlyContinue | ForEach-Object {{
+[void]$sb.AppendLine("`n## 6. IIS, DB Services, SQL Server & Top 40 Phần Mềm Đã Cài")
+[void]$sb.AppendLine("``````text")
+Import-Module WebAdministration -EA 0
+[void]$sb.AppendLine((Get-Website -EA 0 | Select-Object Name, State, PhysicalPath | Format-Table -AutoSize | Out-String))
+[void]$sb.AppendLine((Get-Service | Where-Object {{ $_.Name -match 'SQL|Mongo|Postgres|MySQL|W3SVC|Docker|Redis|Wazuh' }} | Select-Object Name, Status, StartType | Format-Table -AutoSize | Out-String))
+Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Microsoft SQL Server' -EA 0 | ForEach-Object {{
   $setup = Join-Path $_.PSPath 'Setup'
   if (Test-Path $setup) {{
     $p = Get-ItemProperty $setup
-    [void]$sb.AppendLine("Instance=$($_.PSChildName) Edition=$($p.Edition) Version=$($p.Version) PatchLevel=$($p.PatchLevel)")
+    [void]$sb.AppendLine("SQL Instance=$($_.PSChildName) Edition=$($p.Edition) Version=$($p.Version) PatchLevel=$($p.PatchLevel)")
   }}
 }}
-
-[void]$sb.AppendLine("`n## 7. RDP / SMB / WinRM Security & Scheduled Tasks")
-$rdp = (Get-ItemProperty 'HKLM:\System\CurrentControlSet\\Control\\Terminal Server' -EA 0).fDenyTSConnections
-$nla = (Get-ItemProperty 'HKLM:\System\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -EA 0).UserAuthentication
-$smb1 = (Get-SmbServerConfiguration -EA 0).EnableSMB1Protocol
-[void]$sb.AppendLine("RDP_Disabled=$rdp | RDP_NLA=$nla | SMBv1_Enabled=$smb1")
-[void]$sb.AppendLine("`n## 8. Installed Software (Top 40 for CVE Check)")
-[void]$sb.AppendLine((Get-ItemProperty 'HKLM:\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -EA 0 | Where-Object {{ $_.DisplayName }} | Select-Object -First 40 DisplayName, DisplayVersion, Publisher | Sort-Object DisplayName | Out-String))
+[void]$sb.AppendLine((Get-ItemProperty 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -EA 0 | Where-Object {{ $_.DisplayName }} | Select-Object -First 40 DisplayName, DisplayVersion, Publisher | Sort-Object DisplayName | Format-Table -AutoSize | Out-String))
+[void]$sb.AppendLine("``````")
 
 Set-Content -Path (Join-Path $work 'live_system_audit.md') -Value $sb.ToString() -Encoding UTF8
 if (Test-Path 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config') {{
   Copy-Item 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config' (Join-Path $work 'applicationHost.config') -Force
 }}
-
 $zip = "$work.zip"
 Compress-Archive -Path "$work\\*" -DestinationPath $zip -Force
-Write-Host "[AI Security Audit] Uploading snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
+Write-Host "[AI Security Audit v3.0] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
 $resp = Invoke-RestMethod -Uri "{server_base}/api/collector/upload?token={token}&host=$hostName&os=windows" -Method Post -InFile $zip -ContentType "application/zip" -TimeoutSec 120
-Write-Host ("[AI Security Audit] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
+Write-Host ("[AI Security Audit v3.0] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
 Remove-Item $work, $zip -Recurse -Force -ErrorAction SilentlyContinue
 """
     hdrs = {"Content-Disposition": "attachment; filename=win_collector.ps1"} if dl else {}
@@ -1050,25 +1088,54 @@ def download_linux_collector(request: Request, token: str = "", dl: int = 0):
     script = f"""#!/usr/bin/env bash
 set -euo pipefail
 HOST=$(hostname)
+NOW=$(date -Iseconds)
+OS_VER=$(lsb_release -ds 2>/dev/null || grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"')
+KERNEL=$(uname -sr)
+REBOOT=$([ -f /var/run/reboot-required ] && echo "CẦN REBOOT (YES)" || echo "Không (NO)")
 WORK="/tmp/ace_audit_${{HOST}}_$$"
 mkdir -p "$WORK/configs"
 {{
-  echo "# Linux Live Security Snapshot ($HOST - $(date -Iseconds))"
-  echo "## 1. OS & Updates"
-  (lsb_release -ds 2>/dev/null || cat /etc/os-release | head -n 4); uname -a
-  apt list --upgradable 2>/dev/null | head -n 40 || true
-  echo "## 2. Listening Ports"
+  echo "# Báo Cáo Hiện Trạng Linux & CIS/MITRE Audit ($HOST — $NOW)"
+  echo ""
+  echo "## 1. Hệ Điều Hành, Kernel & Gói Chờ Cập Nhật"
+  echo "| Thông số | Giá trị |"
+  echo "|---|---|"
+  echo "| **Hostname** | `$HOST` |"
+  echo "| **Hệ điều hành** | $OS_VER |"
+  echo "| **Kernel** | `$KERNEL` |"
+  echo "| **Trạng thái Reboot** | **$REBOOT** |"
+  echo ""
+  echo '```text'
+  apt list --upgradable 2>/dev/null | grep -v '^Listing' | head -n 40 || true
+  echo '```'
+  echo "## 2. Cổng Mạng Đang Mở (ss -tulpn)"
+  echo '```text'
   ss -tulpn 2>/dev/null || true
-  echo "## 3. Firewall"
+  echo '```'
+  echo "## 3. Tường Lửa & CIS SSH/Sysctl"
+  echo '```text'
   ufw status verbose 2>/dev/null || true
   iptables -S DOCKER-USER 2>/dev/null || true
-  echo "## 4. Docker Security"
+  grep -iE '^\s*(PermitRootLogin|PasswordAuthentication|PermitEmptyPasswords)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true
+  echo "ASLR=$(sysctl -n kernel.randomize_va_space 2>/dev/null || echo N/A) | SYNCOOKIES=$(sysctl -n net.ipv4.tcp_syncookies 2>/dev/null || echo N/A)"
+  echo '```'
+  echo "## 4. MITRE ATT&CK — UID0, Sudoers NOPASSWD & SUID"
+  echo '```text'
+  awk -F: '$3 == 0 {{print "UID0:", $1}}' /etc/passwd
+  grep -rn "NOPASSWD" /etc/sudoers /etc/sudoers.d/ 2>/dev/null | head -n 15 || true
+  find /usr/local /opt /tmp /var /home -perm -4000 -type f 2>/dev/null | head -n 15 || true
+  echo '```'
+  echo "## 5. Docker Security Audit"
+  echo '```text'
   if command -v docker >/dev/null 2>&1; then
-    docker ps --format "table {{{{.Names}}}}\\t{{{{.Image}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}" || true
+    docker ps --format "table {{{{.Names}}}}\t{{{{.Image}}}}\t{{{{.Status}}}}\t{{{{.Ports}}}}" || true
     for cid in $(docker ps -q 2>/dev/null); do
       docker inspect "$cid" --format '{{{{.Name}}}} | Privileged={{{{.HostConfig.Privileged}}}} | NetMode={{{{.HostConfig.NetworkMode}}}} | User={{{{.Config.User}}}}' || true
     done
+  else
+    echo "Docker not installed."
   fi
+  echo '```'
 }} > "$WORK/live_system_audit.md"
 
 for p in /etc/nginx /etc/haproxy /etc/postgresql /etc/mysql /etc/mongod.conf /etc/redis /etc/ssh/sshd_config; do
@@ -1077,7 +1144,7 @@ done
 
 TGZ="${{WORK}}.tar.gz"
 tar -czf "$TGZ" -C "$WORK" .
-echo "[AI Security Audit] Uploading snapshot for $HOST to {server_base}..."
+echo "[AI Security Audit v3.0] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
 curl -fsS -X POST --data-binary @"$TGZ" -H "Content-Type: application/gzip" "{server_base}/api/collector/upload?token={token}&host=${{HOST}}&os=linux"
 echo ""
 rm -rf "$WORK" "$TGZ"
@@ -1133,7 +1200,7 @@ async def api_collector_upload(request: Request, token: str = "", host: str = "u
         f"mkdir -p '{wsl_rep}' && "
         f"([ -f '{wsl_src}/live_system_audit.md' ] && cp '{wsl_src}/live_system_audit.md' '{wsl_rep}/00_live_system_audit.md' || true) && "
         f"gitleaks detect --source '{wsl_src}' --no-git --report-format json --report-path '{wsl_rep}/01_gitleaks_secrets.json' --exit-code 0 || true; "
-        f"trivy fs --timeout 5m --skip-dirs node_modules,.next,vendor,.git,uploads,cache --scanners vuln,misconfig --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
+        f"trivy fs --timeout 5m --skip-dirs '**/node_modules,node_modules,**/.next,.next,**/vendor,vendor,**/.git,.git,**/uploads,uploads,**/cache,cache,**/wp-content/uploads' --skip-files '**/*.min.js,**/*.map' --scanners vuln,misconfig --misconfig-scanners dockerfile,terraform,kubernetes --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
         f"semgrep scan --timeout 300 --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
         f"echo 'PUSH AUDIT COMPLETE -> F:\\ERP-Audit-Lab\\reports\\{tag}'"
     )
@@ -1277,7 +1344,7 @@ async def api_scan(request: Request):
         f"echo '[1/3] Gitleaks Secret Scan...' && "
         f"gitleaks detect --source '{wsl_src}' --no-git --report-format json --report-path '{wsl_rep}/01_gitleaks_secrets.json' --exit-code 0 || true; "
         f"echo '[2/3] Trivy SCA & Misconfig...' && "
-        f"trivy fs --timeout 5m --skip-dirs node_modules,.next,vendor,.git,uploads,cache --scanners vuln,misconfig --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
+        f"trivy fs --timeout 5m --skip-dirs '**/node_modules,node_modules,**/.next,.next,**/vendor,vendor,**/.git,.git,**/uploads,uploads,**/cache,cache,**/wp-content/uploads' --skip-files '**/*.min.js,**/*.map' --scanners vuln,misconfig --misconfig-scanners dockerfile,terraform,kubernetes --format json --output '{wsl_rep}/02_trivy_sca.json' '{wsl_src}' || true; "
         f"echo '[3/3] Semgrep SAST (15 Stacks)...' && "
         f"semgrep scan --timeout 300 --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
         f"echo 'SCAN COMPLETE -> F:\\ERP-Audit-Lab\\reports\\{tag}'"
@@ -1360,34 +1427,48 @@ def api_report_content(folder: str, filename: str, request: Request):
         try:
             data = json.loads(raw)
             if "01_gitleaks" in fp.name and isinstance(data, list):
+                sol = report_exporter.REMEDIATION_KB["hardcoded"]
                 rows = "".join(
-                    f"<tr><td>{x.get('RuleID','')}</td><td><code>{x.get('File','')}</code></td><td>{x.get('StartLine','')}</td><td>***REDACTED***</td></tr>"
+                    f"<tr><td><span class='sev-CRITICAL'>CRITICAL</span></td><td>{x.get('RuleID','')}</td><td><code>{x.get('File','')}</code>:{x.get('StartLine','')}</td><td>***REDACTED***</td><td>{sol}</td></tr>"
                     for x in data[:100]
                 )
-                return {"html": f"<h3>Gitleaks Findings ({len(data)} total — secrets masked)</h3><table><tr><th>Rule</th><th>File</th><th>Line</th><th>Match</th></tr>{rows}</table>"}
+                return {"html": f"<h3>Gitleaks — Lộ Thông Tin Nhạy Cảm ({len(data)} phát hiện — đã che giá trị)</h3><table><tr><th>Mức độ</th><th>Loại Secret</th><th>Vị trí</th><th>Giá trị</th><th>Giải pháp khắc phục (Solution)</th></tr>{rows}</table>"}
             if "02_trivy" in fp.name and isinstance(data, dict):
                 v_rows, m_rows = [], []
                 for res in data.get("Results", []) or []:
                     tgt = res.get("Target", "")
                     for v in res.get("Vulnerabilities", []) or []:
-                        v_rows.append(f"<tr><td><b>{v.get('Severity','')}</b></td><td><code>{v.get('VulnerabilityID','')}</code></td><td><code>{v.get('PkgName','')}</code> ({v.get('InstalledVersion','')})</td><td><code>{v.get('FixedVersion','Chưa có')}</code></td><td>{tgt}</td></tr>")
+                        sv = report_exporter.normalize_severity(v.get("Severity", "MEDIUM"))
+                        fx = v.get("FixedVersion", "")
+                        pkg = v.get("PkgName", "")
+                        sol = f"Nâng cấp gói <code>{pkg}</code> lên <code>{fx}</code>." if fx else f"Áp dụng WAF/Virtual Patch & theo dõi bản vá cho <code>{pkg}</code>."
+                        v_rows.append(f"<tr><td><span class='sev-{sv}'>{sv}</span></td><td><code>{v.get('VulnerabilityID','')}</code></td><td><code>{pkg}</code> ({v.get('InstalledVersion','')})</td><td><code>{fx or 'Chưa có'}</code></td><td>{sol}</td></tr>")
                     for m in res.get("Misconfigurations", []) or []:
-                        m_rows.append(f"<tr><td><b>{m.get('Severity','')}</b></td><td><code>{m.get('ID','')}</code></td><td>{m.get('Title','')}</td><td>{tgt}</td></tr>")
+                        sv = report_exporter.normalize_severity(m.get("Severity", "MEDIUM"), m.get("ID", ""))
+                        sol = m.get("Resolution", "") or report_exporter.get_solution(m.get("ID", ""), m.get("Title", ""))
+                        m_rows.append(f"<tr><td><span class='sev-{sv}'>{sv}</span></td><td><code>{m.get('ID','')}</code></td><td>{m.get('Title','')} (<code>{tgt}</code>)</td><td>{sol}</td></tr>")
                 html_out = f"<h3>Trivy SCA — Lỗ hổng thư viện (CVE): {len(v_rows)} phát hiện</h3>"
                 if v_rows:
-                    html_out += f"<table><tr><th>Mức độ</th><th>CVE</th><th>Gói thư viện</th><th>Bản vá</th><th>Đường dẫn</th></tr>{''.join(v_rows[:200])}</table>"
+                    html_out += f"<table><tr><th>Mức độ</th><th>CVE</th><th>Gói thư viện</th><th>Bản vá</th><th>Giải pháp khắc phục (Solution)</th></tr>{''.join(v_rows[:200])}</table>"
                 else:
                     html_out += "<p style='color:#4ade80'>Không phát hiện lỗ hổng CVE thư viện nào.</p>"
                 if m_rows:
-                    html_out += f"<h3 style='margin-top:18px'>Trivy Misconfiguration — Lỗi cấu hình: {len(m_rows)} phát hiện</h3><table><tr><th>Mức độ</th><th>Mã lỗi</th><th>Mô tả</th><th>Tệp cấu hình</th></tr>{''.join(m_rows[:150])}</table>"
+                    html_out += f"<h3 style='margin-top:18px'>Trivy Misconfiguration — Lỗi cấu hình: {len(m_rows)} phát hiện</h3><table><tr><th>Mức độ</th><th>Mã lỗi</th><th>Mô tả</th><th>Giải pháp khắc phục (Solution)</th></tr>{''.join(m_rows[:150])}</table>"
                 return {"html": html_out}
             if "03_semgrep" in fp.name and isinstance(data, dict):
                 res = data.get("results", [])
-                rows = "".join(
-                    f"<tr><td><b>{r.get('extra',{}).get('severity','')}</b></td><td><code>{r.get('check_id','').split('.')[-1]}</code></td><td><code>{r.get('path','')}:{r.get('start',{}).get('line','')}</code></td><td>{r.get('extra',{}).get('message','')}</td></tr>"
-                    for r in res[:150]
-                )
-                return {"html": f"<h3>Semgrep SAST — Phân tích mã nguồn tĩnh ({len(res)} phát hiện)</h3><table><tr><th>Mức độ</th><th>Quy tắc</th><th>Vị trí</th><th>Mô tả</th></tr>{rows}</table>"}
+                sev_ord = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+                items = []
+                for r in res[:150]:
+                    cid = r.get("check_id", "").split(".")[-1]
+                    msg = r.get("extra", {}).get("message", "")
+                    sv = report_exporter.normalize_severity(r.get("extra", {}).get("severity", "INFO"), cid)
+                    sol = report_exporter.get_solution(cid, msg)
+                    loc = f"{r.get('path','')}:{r.get('start',{}).get('line','')}"
+                    items.append((sev_ord.get(sv, 9), f"<tr><td><span class='sev-{sv}'>{sv}</span></td><td><code>{cid}</code></td><td><code>{loc}</code></td><td>{msg}</td><td>{sol}</td></tr>"))
+                items.sort(key=lambda x: x[0])
+                rows = "".join(x[1] for x in items)
+                return {"html": f"<h3>Semgrep SAST — Phân tích mã nguồn tĩnh ({len(res)} phát hiện)</h3><table><tr><th>Mức độ</th><th>Quy tắc</th><th>Vị trí</th><th>Mô tả</th><th>Giải pháp khắc phục (Solution)</th></tr>{rows}</table>"}
         except Exception:
             pass
     return {"html": f"<pre>{raw[:30000]}</pre>"}
@@ -1403,21 +1484,30 @@ async def api_katana_scan(request: Request):
     name = re.sub(r"[^a-zA-Z0-9_-]+", "_", body.get("name", "web_surface"))
     depth = max(1, min(5, int(body.get("depth", 3))))
     with_ai = bool(body.get("with_ai", False))
+    with_nuclei = bool(body.get("with_nuclei", True))
     tag = f"{datetime.now().strftime('%Y-%m-%d_%H%M')}_katana_{name}"
     wsl_rep = f"/mnt/f/ERP-Audit-Lab/reports/{tag}"
+    nuc_part = (
+        f"echo '[3/3] Running Nuclei Safe Profile (CVE / Misconfig / Exposure, -rl 10)...' && "
+        f"if command -v nuclei >/dev/null 2>&1; then "
+        f"nuclei -u '{url}' -severity critical,high,medium -tags cve,misconfig,exposure,panel,default-login -rl 10 -c 5 -timeout 8 -silent -nc -o '{wsl_rep}/nuclei.txt' 2>/dev/null || true; "
+        f"else echo 'Nuclei chưa cài đặt' > '{wsl_rep}/nuclei.txt'; fi; "
+    ) if with_nuclei else ""
     bash_cmd = (
         f"mkdir -p '{wsl_rep}' && "
-        f"echo '[1/2] Running httpx fingerprint & TLS/Header probe...' && "
+        f"echo '[1/3] Running httpx fingerprint & TLS/Header probe...' && "
         f"echo '{url}' | httpx -title -status-code -tech-detect -server -tls-grab -silent > '{wsl_rep}/httpx.txt' 2>&1 || true; "
-        f"echo '[2/2] Running Katana safe crawl (depth={depth}, rate-limit=10/s)...' && "
+        f"echo '[2/3] Running Katana safe crawl (depth={depth}, rate-limit=10/s)...' && "
         f"katana -u '{url}' -d {depth} -c 3 -rl 10 -jc -kf all -silent -o '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; "
-        f"{{ echo '# Web Surface Discovery Report ({url})'; echo ''; "
-        f"echo '## 1. HTTPX Fingerprint (Tech Stack / Server / Status)'; echo '```'; cat '{wsl_rep}/httpx.txt'; echo '```'; "
-        f"echo '## 2. Discovered Endpoints & JS Routes (Katana — top 200)'; echo '```'; head -n 200 '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; echo '```'; "
+        f"{nuc_part}"
+        f"{{ echo '# Báo Cáo Khám Phá Bề Mặt Web & Nuclei Safe Scan ({url})'; echo ''; "
+        f"echo '## 1. HTTPX Fingerprint (Tech Stack / Server / TLS / Status)'; echo '```text'; cat '{wsl_rep}/httpx.txt'; echo '```'; "
+        f"echo '## 2. Nuclei Safe Vulnerability Scan (Critical / High / Medium)'; echo '```text'; ([ -s '{wsl_rep}/nuclei.txt' ] && cat '{wsl_rep}/nuclei.txt' || echo 'Không phát hiện lỗ hổng Nuclei (Safe Profile).'); echo '```'; "
+        f"echo '## 3. Discovered Endpoints & JS Routes (Katana — top 200)'; echo '```text'; head -n 200 '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; echo '```'; "
         f"}} > '{wsl_rep}/07_web_surface_katana.md'; "
         f"echo \"DISCOVERED_URLS=$(wc -l < '{wsl_rep}/katana_urls.txt' 2>/dev/null || echo 0)\""
     )
-    steps = [(f"Katana + httpx Safe Discovery ({url})", ["wsl", "-u", "root", "bash", "-c", bash_cmd])]
+    steps = [(f"Katana + httpx + Nuclei Safe Scan ({url})", ["wsl", "-u", "root", "bash", "-c", bash_cmd])]
     if with_ai:
         k_model = re.sub(r"[^a-zA-Z0-9_.:-]+", "", body.get("audit_model", "qwen3-vl:8b")) or "qwen3-vl:8b"
         py_ai = (
