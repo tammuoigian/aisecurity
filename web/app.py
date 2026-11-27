@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Red
 import sys as _sys
 _sys.path.insert(0, r"F:\ERP-Audit-Lab\scripts")
 import report_exporter
+import enterprise_intel
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 LAB_ROOT = Path(r"F:\ERP-Audit-Lab")
@@ -226,10 +227,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v3.0")
+app = FastAPI(title="AI Security Audit Platform v3.5")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v3.0</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v3.5</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -239,7 +240,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v3.0</h1>
+<h1>AI Security Audit v3.5</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -248,7 +249,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v3.0 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v3.5 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -308,7 +309,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .sev-LOW{background:#0c4a6e;color:#bae6fd;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v3.0 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div><h1>AI Security Audit v3.5 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px"><span id="gpuPill" class="gpu-pill" title="Đang đọc thông số GPU..."><span class="gpu-dot"></span><span id="gpuText">GPU...</span></span><span id="ollamaBadge" class="badge">Đang kiểm tra Ollama...</span><a href="/logout" style="color:#94a3b8;margin-left:10px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -500,6 +501,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
         <button class="btn btn-gray" onclick="delReportFolder()">Xóa đợt báo cáo này</button>
       </div>
     </div>
+    <div id="repIntelBox" class="card hidden" style="border-color:#0284c7"></div>
     <div class="card"><div id="repContent" class="md">Chọn đợt báo cáo và file ở trên để xem chi tiết...</div></div>
   </div>
   <div id="tab-guide" class="hidden">
@@ -845,8 +847,43 @@ async function loadReportFolders(){
   sel.innerHTML = folders.map(f=>`<option value="${f}">${f}</option>`).join('');
   if(folders.length) loadReportFiles();
 }
+async function loadReportSummary(folder){
+  const box = document.getElementById('repIntelBox');
+  if(!box || !folder) return;
+  try {
+    const r = await fetch('/api/reports/'+encodeURIComponent(folder)+'/summary');
+    if(!r.ok){ box.classList.add('hidden'); return; }
+    const d = await r.json();
+    const cis = d.cis || {};
+    const scoreTxt = cis.available ? `${cis.score}/100 (Hạng ${cis.grade})` : 'Chưa có snapshot OS';
+    const scoreCol = !cis.available ? '#94a3b8' : (cis.score >= 80 ? '#4ade80' : (cis.score >= 65 ? '#facc15' : '#f87171'));
+    const dt = d.delta || {};
+    const deltaTxt = dt.has_prev ? `+${dt.new_count} mới / -${dt.fixed_count} đã vá` : 'Đợt đầu tiên';
+    let html = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:10px">
+      <div style="background:#0f172a;padding:10px 12px;border-radius:8px;border:1px solid #1e293b"><div style="font-size:11px;color:#94a3b8">Điểm CIS Compliance (Lynis/CIS)</div><div style="font-size:18px;font-weight:700;color:${scoreCol}">${scoreTxt}</div></div>
+      <div style="background:#0f172a;padding:10px 12px;border-radius:8px;border:1px solid #1e293b"><div style="font-size:11px;color:#94a3b8">Chuỗi tấn công ghép (Wiz)</div><div style="font-size:18px;font-weight:700;color:${(d.attack_paths||[]).length?'#f87171':'#4ade80'}">${(d.attack_paths||[]).length} Attack Paths</div></div>
+      <div style="background:#0f172a;padding:10px 12px;border-radius:8px;border:1px solid #1e293b"><div style="font-size:11px;color:#94a3b8">CVE đang bị khai thác (CISA KEV)</div><div style="font-size:18px;font-weight:700;color:${d.kev_count?'#f87171':'#4ade80'}">${d.kev_count||0} KEV</div></div>
+      <div style="background:#0f172a;padding:10px 12px;border-radius:8px;border:1px solid #1e293b"><div style="font-size:11px;color:#94a3b8">Biến động vs đợt trước (DefectDojo)</div><div style="font-size:15px;font-weight:700;color:#38bdf8">${deltaTxt}</div></div>
+    </div>`;
+    if((d.attack_paths||[]).length){
+      html += `<details open style="margin-top:6px"><summary style="cursor:pointer;color:#fda4af;font-weight:700">Chuỗi tấn công ghép (Wiz Toxic Combinations — ${d.attack_paths.length})</summary><table style="margin-top:6px"><tr><th>Mức độ</th><th>Kịch bản</th><th>Chuỗi khai thác</th><th>Hành động cắt đứt</th></tr>`
+        + d.attack_paths.map(a=>`<tr><td><span class="sev-${a.severity}">${a.severity}</span></td><td><b>${a.title}</b></td><td>${a.chain}</td><td>${a.action}</td></tr>`).join('') + `</table></details>`;
+    }
+    if(cis.available && (cis.checks||[]).length){
+      html += `<details style="margin-top:8px"><summary style="cursor:pointer;color:#93c5fd;font-weight:700">Chi tiết Chấm điểm CIS Scorecard (${cis.pass_count} PASS · ${cis.warn_count} WARN · ${cis.fail_count} FAIL)</summary><table style="margin-top:6px"><tr><th>Mã CIS</th><th>Tiêu chí</th><th>Kết quả</th><th>Chi tiết</th></tr>`
+        + cis.checks.map(c=>`<tr><td><code>${c.id}</code></td><td>${c.name}</td><td><span class="sev-${c.status==='FAIL'?'CRITICAL':(c.status==='WARN'?'MEDIUM':'LOW')}">${c.status}</span></td><td>${c.detail}</td></tr>`).join('') + `</table></details>`;
+    }
+    box.innerHTML = html;
+    box.classList.remove('hidden');
+  } catch(e){ box.classList.add('hidden'); }
+}
+async function setTriage(fp, sel){
+  await fetch('/api/triage', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fingerprint:fp, status:sel.value})});
+  sel.style.borderColor = sel.value==='FIXED' ? '#22c55e' : (sel.value==='FALSE_POSITIVE' ? '#64748b' : '#0284c7');
+}
 async function loadReportFiles(){
   const folder = document.getElementById('repFolder').value; if(!folder) return;
+  loadReportSummary(folder);
   const r = await fetch('/api/reports/'+encodeURIComponent(folder)); const files = await r.json();
   const sel = document.getElementById('repFile');
   sel.innerHTML = files.map(f=>`<option value="${f}">${f}</option>`).join('');
@@ -990,7 +1027,7 @@ def api_rotate_token(request: Request):
 def download_win_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
-    script = f"""# AI Security Audit v3.0 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
+    script = f"""# AI Security Audit v3.5 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
 $ErrorActionPreference = 'SilentlyContinue'
 $hostName = $env:COMPUTERNAME
 $work = Join-Path $env:TEMP ("ace_audit_" + $hostName + "_" + (Get-Random))
@@ -1074,9 +1111,9 @@ if (Test-Path 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config') 
 }}
 $zip = "$work.zip"
 Compress-Archive -Path "$work\\*" -DestinationPath $zip -Force
-Write-Host "[AI Security Audit v3.0] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
+Write-Host "[AI Security Audit v3.5] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
 $resp = Invoke-RestMethod -Uri "{server_base}/api/collector/upload?token={token}&host=$hostName&os=windows" -Method Post -InFile $zip -ContentType "application/zip" -TimeoutSec 120
-Write-Host ("[AI Security Audit v3.0] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
+Write-Host ("[AI Security Audit v3.5] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
 Remove-Item $work, $zip -Recurse -Force -ErrorAction SilentlyContinue
 """
     hdrs = {"Content-Disposition": "attachment; filename=win_collector.ps1"} if dl else {}
@@ -1145,7 +1182,7 @@ done
 
 TGZ="${{WORK}}.tar.gz"
 tar -czf "$TGZ" -C "$WORK" .
-echo "[AI Security Audit v3.0] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
+echo "[AI Security Audit v3.5] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
 curl -fsS -X POST --data-binary @"$TGZ" -H "Content-Type: application/gzip" "{server_base}/api/collector/upload?token={token}&host=${{HOST}}&os=linux"
 echo ""
 rm -rf "$WORK" "$TGZ"
@@ -1415,6 +1452,21 @@ def api_report_files(folder: str, request: Request):
         raise HTTPException(404, "Not found")
     return sorted([f.name for f in d.iterdir() if f.is_file()])
 
+@app.get("/api/reports/{folder}/summary")
+def api_report_summary(folder: str, request: Request):
+    require_auth(request)
+    d = (REPORTS_ROOT / folder).resolve()
+    if not str(d).startswith(str(REPORTS_ROOT.resolve())) or not d.exists():
+        raise HTTPException(404, "Report folder not found")
+    data = report_exporter._gather_report_data(d)
+    return {
+        "cis": data["cis"],
+        "attack_paths": data["attack_paths"],
+        "delta": data["delta"],
+        "kev_count": data["kpi"]["kev_count"],
+        "kpi": data["kpi"],
+    }
+
 @app.get("/api/reports/{folder}/{filename}")
 def api_report_content(folder: str, filename: str, request: Request):
     require_auth(request)
@@ -1443,7 +1495,9 @@ def api_report_content(folder: str, filename: str, request: Request):
                         fx = v.get("FixedVersion", "")
                         pkg = v.get("PkgName", "")
                         sol = f"Nâng cấp gói <code>{pkg}</code> lên <code>{fx}</code>." if fx else f"Áp dụng WAF/Virtual Patch & theo dõi bản vá cho <code>{pkg}</code>."
-                        v_rows.append(f"<tr><td><span class='sev-{sv}'>{sv}</span></td><td><code>{v.get('VulnerabilityID','')}</code></td><td><code>{pkg}</code> ({v.get('InstalledVersion','')})</td><td><code>{fx or 'Chưa có'}</code></td><td>{sol}</td></tr>")
+                        is_k = enterprise_intel.is_cisa_kev(v.get('VulnerabilityID',''))
+                        kev_b = " <span class='sev-CRITICAL'>CISA KEV</span>" if is_k else ""
+                        v_rows.append(f"<tr><td><span class='sev-{sv}'>{sv}</span>{kev_b}</td><td><code>{v.get('VulnerabilityID','')}</code></td><td><code>{pkg}</code> ({v.get('InstalledVersion','')})</td><td><code>{fx or 'Chưa có'}</code></td><td>{sol}</td></tr>")
                     for m in res.get("Misconfigurations", []) or []:
                         sv = report_exporter.normalize_severity(m.get("Severity", "MEDIUM"), m.get("ID", ""))
                         sol = m.get("Resolution", "") or report_exporter.get_solution(m.get("ID", ""), m.get("Title", ""))
@@ -1458,7 +1512,9 @@ def api_report_content(folder: str, filename: str, request: Request):
                 return {"html": html_out}
             if "03_semgrep" in fp.name and isinstance(data, dict):
                 res = data.get("results", [])
+                triage_map = enterprise_intel.load_triage(WEB_DIR)
                 sev_ord = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+                opts_lbl = [("OPEN", "Mới"), ("IN_PROGRESS", "Đang xử lý"), ("FIXED", "Đã vá"), ("FALSE_POSITIVE", "Báo động giả"), ("RISK_ACCEPTED", "Chấp nhận RR")]
                 items = []
                 for r in res[:150]:
                     cid = r.get("check_id", "").split(".")[-1]
@@ -1466,10 +1522,15 @@ def api_report_content(folder: str, filename: str, request: Request):
                     sv = report_exporter.normalize_severity(r.get("extra", {}).get("severity", "INFO"), cid)
                     sol = report_exporter.get_solution(cid, msg)
                     loc = f"{r.get('path','')}:{r.get('start',{}).get('line','')}"
-                    items.append((sev_ord.get(sv, 9), f"<tr><td><span class='sev-{sv}'>{sv}</span></td><td><code>{cid}</code></td><td><code>{loc}</code></td><td>{msg}</td><td>{sol}</td></tr>"))
+                    ffp = enterprise_intel.finding_fingerprint("sast", cid, loc)
+                    cur_st = triage_map.get(ffp, {}).get("status", "OPEN")
+                    sel_html = f"<select style='padding:3px 6px;font-size:11px;width:110px' onchange=\"setTriage('{ffp}',this)\">" + "".join(
+                        f"<option value='{k}'{' selected' if k==cur_st else ''}>{lbl}</option>" for k, lbl in opts_lbl
+                    ) + "</select>"
+                    items.append((sev_ord.get(sv, 9), f"<tr><td><span class='sev-{sv}'>{sv}</span></td><td><code>{cid}</code></td><td><code>{loc}</code></td><td>{msg}</td><td>{sol}</td><td>{sel_html}</td></tr>"))
                 items.sort(key=lambda x: x[0])
                 rows = "".join(x[1] for x in items)
-                return {"html": f"<h3>Semgrep SAST — Phân tích mã nguồn tĩnh ({len(res)} phát hiện)</h3><table><tr><th>Mức độ</th><th>Quy tắc</th><th>Vị trí</th><th>Mô tả</th><th>Giải pháp khắc phục (Solution)</th></tr>{rows}</table>"}
+                return {"html": f"<h3>Semgrep SAST — Phân tích mã nguồn tĩnh ({len(res)} phát hiện)</h3><table><tr><th>Mức độ</th><th>Quy tắc</th><th>Vị trí</th><th>Mô tả</th><th>Giải pháp khắc phục (Solution)</th><th>Trạng thái</th></tr>{rows}</table>"}
         except Exception:
             pass
     return {"html": f"<pre>{raw[:30000]}</pre>"}
@@ -1601,6 +1662,19 @@ def api_retry_job(jid: str, request: Request):
         raise HTTPException(404, "Job steps not available for retry")
     new_jid = start_job(j["title"] + " (Retry)", j["steps"])
     return {"ok": True, "job_id": new_jid}
+
+@app.post("/api/triage")
+async def api_set_triage(request: Request):
+    require_auth(request)
+    body = await request.json()
+    ffp = (body.get("fingerprint") or "").strip()
+    st = (body.get("status") or "OPEN").upper()
+    if not ffp or st not in ("OPEN", "IN_PROGRESS", "FIXED", "FALSE_POSITIVE", "RISK_ACCEPTED"):
+        raise HTTPException(400, "Invalid triage payload")
+    tmap = enterprise_intel.load_triage(WEB_DIR)
+    tmap[ffp] = {"status": st, "updated": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    enterprise_intel.save_triage(tmap, WEB_DIR)
+    return {"ok": True}
 
 @app.delete("/api/reports/{folder}")
 def api_delete_report(folder: str, request: Request):

@@ -135,6 +135,44 @@ if command -v docker >/dev/null 2>&1; then
 else
   echo "- Docker chưa được cài đặt trên máy chủ này."
 fi
+
+echo ""
+echo "## 7. Kiểm Toán Chứng Chỉ SSL/TLS (Qualys / Tenable)"
+echo ""
+SSL_FOUND=0
+for cert in $(find /etc/letsencrypt/live /etc/nginx /etc/ssl/private -maxdepth 3 -type f \( -name "*.crt" -o -name "fullchain.pem" \) 2>/dev/null | head -n 15); do
+  END=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | cut -d= -f2 || true)
+  if [ -n "$END" ]; then
+    SSL_FOUND=1
+    EXP_TS=$(date -d "$END" +%s 2>/dev/null || echo 0)
+    NOW_TS=$(date +%s)
+    DAYS=$(( (EXP_TS - NOW_TS) / 86400 ))
+    ST="OK"
+    [ "$DAYS" -lt 0 ] && ST="SSL_EXPIRED"
+    [ "$DAYS" -ge 0 ] && [ "$DAYS" -le 30 ] && ST="SSL_EXPIRING_SOON"
+    printf '- `%s` — Hết hạn: **%s** (còn **%s ngày**) [%s]\n' "$cert" "$END" "$DAYS" "$ST"
+  fi
+done
+[ "$SSL_FOUND" -eq 0 ] && echo "- Không tìm thấy chứng chỉ SSL cục bộ trong /etc/nginx hoặc /etc/letsencrypt."
+
+echo ""
+echo "## 8. Live Threat Hunting & IOCs (CrowdStrike / Rapid7)"
+echo ""
+echo '```text'
+echo "[Top Outbound ESTABLISHED Connections]"
+ss -tnp state established 2>/dev/null | head -n 20 || true
+echo ""
+echo "[Suspicious Processes Running From /tmp or /dev/shm]"
+ps -eo pid,user,cmd --no-headers 2>/dev/null | grep -E "(/tmp/|/dev/shm/)" | grep -v grep | head -n 15 | sed 's/^/IOC_SUSPICIOUS_PROC: /' || echo "None"
+echo ""
+echo "[Recent Logins (last -n 10)]"
+last -n 10 2>/dev/null || true
+echo ""
+echo "[SSH authorized_keys Inventory]"
+for kf in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
+  [ -f "$kf" ] && echo "  $kf ($(wc -l < "$kf") keys)"
+done
+echo '```'
 """
 
 WINDOWS_SNAPSHOT_PS = r"""
@@ -213,6 +251,25 @@ Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server' -EA 0 | ForEach-Ob
     Write-Output "SQL Instance=$($_.PSChildName) | Edition=$($p.Edition) | Version=$($p.Version) | PatchLevel=$($p.PatchLevel)"
   }
 }
+Write-Output '```'
+
+Write-Output "## 7. Kiểm Toán Chứng Chỉ SSL/TLS (Qualys / Tenable)"
+Write-Output '```text'
+$nowD = Get-Date
+$certs = Get-ChildItem Cert:\LocalMachine\My -EA 0 | Sort-Object NotAfter | Select-Object -First 15
+foreach ($ct in $certs) {
+  $days = [math]::Floor(($ct.NotAfter - $nowD).TotalDays)
+  $st = if ($days -lt 0) { 'SSL_EXPIRED' } elseif ($days -le 30) { 'SSL_EXPIRING_SOON' } else { 'OK' }
+  Write-Output ("Cert: $($ct.Subject) | Expires: $($ct.NotAfter.ToString('yyyy-MM-dd')) | DaysLeft=$days | [$st]")
+}
+Write-Output '```'
+
+Write-Output "## 8. Live Threat Hunting & IOCs (CrowdStrike / Rapid7)"
+Write-Output '```text'
+Write-Output "[Top Established Outbound Connections]"
+Get-NetTCPConnection -State Established -EA 0 | Where-Object { $_.RemoteAddress -notmatch '^(127\.|::1|0\.0\.0\.0)' } | Select-Object -First 20 LocalPort, RemoteAddress, RemotePort, OwningProcess | Format-Table -AutoSize | Out-String
+Write-Output "[Suspicious Processes Running From Temp/AppData/Public]"
+Get-CimInstance Win32_Process -EA 0 | Where-Object { $_.ExecutablePath -match '(\\Temp\\|\\AppData\\Local\\Temp\\|\\Users\\Public\\)' } | ForEach-Object { Write-Output ("IOC_SUSPICIOUS_PROC: PID=$($_.ProcessId) $($_.Name) -> $($_.ExecutablePath)") }
 Write-Output '```'
 """
 

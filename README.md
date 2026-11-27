@@ -1,6 +1,6 @@
-# AI Security Audit Platform (v3.0 — Enterprise Edition)
+# AI Security Audit Platform (v3.5 — Enterprise Security Suite)
 
-**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng & Hạ Tầng Độc Lập — 100% On-Premise (White-Box Code Audit + 10 Multi-Stack AI Playbooks + CIS Benchmark & MITRE ATT&CK Collectors + Katana/httpx/Nuclei Safe Scan + Patch-Diff + Live GPU Telemetry).**
+**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng & Hạ Tầng Độc Lập — 100% On-Premise (CIS Compliance Scorecard 0–100 + Wiz Attack Paths + CISA KEV & SSL/TLS + CrowdStrike Threat Hunting IOCs + DefectDojo Delta & Lifecycle + 10 Multi-Stack AI Playbooks + Katana/httpx/Nuclei).**
 
 Được thiết kế theo chuẩn **CTEM (Continuous Threat Exposure Management)** & **Grey-Box Security Assessment ("Trong soi ra — Ngoài soi vào")**, giúp phát hiện các **lỗ hổng chưa biết tới (0-day, lỗi logic nghiệp vụ, IDOR, SQLi sâu trong mã nguồn/DLL, NoSQLi, Shadow API, sai cấu hình hạ tầng)** mà WAF hay máy quét lỗ hổng truyền thống thường bỏ sót — **0 byte mã nguồn rời khỏi mạng nội bộ**.
 
@@ -31,12 +31,13 @@
 - **Patch-Diff & Variant Analysis:** So sánh `git diff` giữa 2 phiên bản để phát hiện lỗi hồi quy bảo mật (**Security Regression**) và truy vết các biến thể chưa vá trên toàn codebase.
 - **Outside-In Web Surface Discovery (`ProjectDiscovery Katana` + `httpx`):** Crawl an toàn có giới hạn tốc độ (`-rl 10 req/s`) để tìm API ẩn trong JavaScript bundle (Next.js/React/WordPress), kiểm tra TLS/Headers và phân tích chéo **Shadow API** bằng Model AI tự chọn.
 
-### D. Tinh Hoa Bảo Mật Enterprise & Vận Hành Trực Quan (v3.0)
-- **CIS Benchmark & MITRE ATT&CK Deep Collectors (PowerShell & Linux):** Kiểm toán chuyên sâu hệ điều hành (RDP/NLA, SMBv1, LSA Protection `RunAsPPL`, WDigest, Defender Exclusions, **Unquoted Service Paths**, Scheduled Tasks bất thường trên Windows; SSH/Sysctl ASLR/SYN Cookies, `UID 0`, `sudoers NOPASSWD`, **SUID binaries**, Docker `privileged`/`docker.sock` trên Linux) và xuất báo cáo dạng **Bảng Markdown** rõ ràng.
-- **10 Multi-Stack Auto-Adaptive AI Playbooks:** Tự động nhận diện và kiểm toán sâu đúng công nghệ thực tế của dự án (Auth/IDOR, SQLi/NoSQLi/CMDi, Upload/SSRF, Deserialization/XSS, Reverse Proxy/WAF, Docker/Secrets, Database Hardening, OS CIS/MITRE, AI/MCP Security, WordPress/Next.js).
-- **`ProjectDiscovery Nuclei` (Safe Profile):** Tích hợp cùng `Katana + httpx` tại Tab 5 (`-severity critical,high,medium -tags cve,misconfig,exposure,panel,default-login -rl 10`) để phát hiện CVE Web và cấu hình lộ lọt an toàn.
-- **Chuẩn Mức Độ `CRITICAL / HIGH / MEDIUM / LOW` + Cột `Giải pháp vá (Solutions)`:** Chuẩn hóa đồng bộ trên Web Tab 6, **PDF A4** và **Excel 5 Sheet**, kèm lộ trình khắc phục ưu tiên **P0 / P1 / P2**.
-- **Live GPU Telemetry (`/api/telemetry`) & Quản trị Tiến trình:** Pill badge góc phải theo dõi `% GPU`, `VRAM (MiB)`, nhiệt độ GPU, model Ollama đang nạp, thanh tiến độ `%`, bộ đếm `mm:ss` và Smart Auto-Scroll.
+### D. Tinh Hoa Bảo Mật Enterprise & Vận Hành Trực Quan (v3.5)
+- **CIS Compliance Scorecard 0–100 (Lynis / CIS-CAT / HardeningKitty):** Tự động chấm điểm an toàn (`0–100`, Hạng `A/B/C/D/F`) theo từng tiêu chí `PASS / WARN / FAIL` cho cả Linux & Windows trên Tab 6 và trang bìa PDF.
+- **Qualys / Tenable — Kiểm toán SSL/TLS & Gắn cờ `CISA KEV`:** Tự động soi hạn chứng chỉ SSL/TLS trên Nginx/LetsEncrypt/Windows IIS (cảnh báo `< 30 ngày`) và gắn nhãn đỏ **`CISA KEV`** cho các CVE đang bị hacker khai thác ngoài thực tế.
+- **CrowdStrike / Rapid7 — Live Threat Hunting & IOCs:** Thu thập kết nối `ESTABLISHED` ra ngoài, tiến trình nghi ngờ chạy từ `/tmp` / `AppData`, lịch sử đăng nhập gần nhất (`last`) và kiểm kê `authorized_keys`.
+- **Wiz — Attack Path & Toxic Combinations:** Tự động liên kết lỗ hổng đa lớp (*Cổng mở + Lỗi SAST/KEV + Container Privileged/Host + Secret lộ*) thành kịch bản tấn công hoàn chỉnh để ưu tiên cắt đứt chuỗi.
+- **DefectDojo — Scan-to-Scan Delta & Finding Lifecycle:** Tự động so sánh `+N lỗi mới / -M lỗi đã vá` giữa 2 đợt quét của cùng dự án, kèm dropdown đánh dấu trạng thái (`Mới / Đang xử lý / Đã vá / Báo động giả / Chấp nhận rủi ro`) ngay trên Tab 6.
+- **10 Multi-Stack AI Playbooks + `Nuclei` Safe Profile + `Trivy` Fast ext4 Staging (`~2s`) + Live GPU Telemetry (`/api/telemetry`).**
 
 ---
 

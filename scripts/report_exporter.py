@@ -8,6 +8,7 @@ from pathlib import Path
 import markdown
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
+import enterprise_intel
 
 # Remediation Knowledge Base (Solutions tiếng Việt chuyên sâu theo Rule / Nhóm lỗi)
 REMEDIATION_KB = {
@@ -96,6 +97,7 @@ def _gather_report_data(report_dir: Path):
     sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
     sg_norm.sort(key=lambda x: sev_order.get(x["severity"], 9))
 
+    kev_set = enterprise_intel.load_cisa_kev_set()
     tr_raw = _load_json(report_dir / "02_trivy_sca.json", {})
     tr_items = []
     if isinstance(tr_raw, dict):
@@ -104,9 +106,12 @@ def _gather_report_data(report_dir: Path):
             for v in res.get("Vulnerabilities", []) or []:
                 fixed = v.get("FixedVersion", "")
                 pkg = v.get("PkgName", "")
+                cid_v = v.get("VulnerabilityID", "")
+                is_kev = enterprise_intel.is_cisa_kev(cid_v, kev_set)
                 tr_items.append({
-                    "severity": normalize_severity(v.get("Severity", "MEDIUM")),
-                    "id": v.get("VulnerabilityID", ""),
+                    "severity": "CRITICAL" if is_kev else normalize_severity(v.get("Severity", "MEDIUM")),
+                    "id": cid_v,
+                    "is_kev": is_kev,
                     "target": f"{tgt} ({pkg})",
                     "installed": v.get("InstalledVersion", ""),
                     "fixed": fixed or "Theo dõi bản vá mới",
@@ -117,13 +122,21 @@ def _gather_report_data(report_dir: Path):
                 tr_items.append({
                     "severity": normalize_severity(m.get("Severity", "MEDIUM"), m.get("ID", "")),
                     "id": m.get("ID", ""),
+                    "is_kev": False,
                     "target": tgt,
                     "installed": "-",
                     "fixed": m.get("Resolution", "")[:120],
                     "desc": m.get("Title", ""),
                     "solution": m.get("Resolution", "") or get_solution(m.get("ID", ""), m.get("Title", "")),
                 })
-    tr_items.sort(key=lambda x: sev_order.get(x["severity"], 9))
+    tr_items.sort(key=lambda x: (0 if x.get("is_kev") else 1, sev_order.get(x["severity"], 9)))
+
+    live_md_fp = report_dir / "00_live_system_audit.md"
+    live_md_txt = live_md_fp.read_text(encoding="utf-8", errors="ignore") if live_md_fp.exists() else ""
+    cis = enterprise_intel.compute_cis_scorecard(live_md_txt)
+    attack_paths = enterprise_intel.detect_attack_paths(live_md_txt, sg_norm, gl, tr_items)
+    delta = enterprise_intel.compute_scan_delta(report_dir.parent, report_dir)
+    kev_count = sum(1 for x in tr_items if x.get("is_kev"))
 
     md_sections = []
     for fname, label in [
@@ -149,6 +162,9 @@ def _gather_report_data(report_dir: Path):
         "semgrep": sg_norm,
         "trivy": tr_items,
         "md_sections": md_sections,
+        "cis": cis,
+        "attack_paths": attack_paths,
+        "delta": delta,
         "kpi": {
             "sast_total": len(sg_norm),
             "sast_critical": sast_crit,
@@ -158,6 +174,7 @@ def _gather_report_data(report_dir: Path):
             "secrets_total": len(gl),
             "sca_total": len(tr_items),
             "sca_crit_high": tr_crit,
+            "kev_count": kev_count,
         },
     }
 
@@ -288,11 +305,35 @@ def export_pdf(report_dir: Path, out_pdf: Path) -> Path:
         for g in d["gitleaks"][:40]
     ) or "<tr><td colspan='5'>Không phát hiện lộ thông tin bí mật.</td></tr>"
 
+    kev_tag = " <span class='sev-CRITICAL'>CISA KEV</span>"
     trivy_rows = "".join(
-        f"<tr><td><span class='sev-{t['severity']}'>{t['severity']}</span></td><td><code>{t['id']}</code></td>"
+        f"<tr><td><span class='sev-{t['severity']}'>{t['severity']}</span>{kev_tag if t.get('is_kev') else ''}</td><td><code>{t['id']}</code></td>"
         f"<td><code>{t['target']}</code> ({t['installed']})</td><td><code>{t['fixed']}</code></td><td>{t['solution']}</td></tr>"
         for t in d["trivy"][:40]
     ) or "<tr><td colspan='5'>Không phát hiện lỗ hổng thư viện/cấu hình Trivy.</td></tr>"
+
+    cis = d["cis"]
+    cis_label = f"{cis['score']}/100 (Hạng {cis['grade']})" if cis.get("available") else "N/A"
+    cis_html = ""
+    if cis.get("available"):
+        c_rows = "".join(
+            f"<tr><td><code>{c['id']}</code></td><td>{c['name']}</td><td><b>{c['status']}</b></td><td>{c['detail']}</td></tr>"
+            for c in cis["checks"]
+        )
+        cis_html = f"<h2>0A. Chấm Điểm Tuân Thủ CIS Security Scorecard ({cis_label})</h2><table><thead><tr><th style='width:14%'>Mã CIS</th><th style='width:34%'>Tiêu chí kiểm tra</th><th style='width:10%'>Kết quả</th><th>Chi tiết thực tế</th></tr></thead><tbody>{c_rows}</tbody></table>"
+
+    ap_html = ""
+    if d["attack_paths"]:
+        ap_rows = "".join(
+            f"<tr><td><span class='sev-{a['severity']}'>{a['severity']}</span></td><td><b>{a['title']}</b></td><td>{a['chain']}</td><td>{a['action']}</td></tr>"
+            for a in d["attack_paths"]
+        )
+        ap_html = f"<h2>0B. Phân Tích Chuỗi Tấn Công Ghép (Wiz Attack Paths — {len(d['attack_paths'])} chuỗi)</h2><table><thead><tr><th style='width:10%'>Mức độ</th><th style='width:24%'>Kịch bản tấn công</th><th style='width:36%'>Chuỗi khai thác (Toxic Combination)</th><th>Hành động cắt đứt chuỗi</th></tr></thead><tbody>{ap_rows}</tbody></table>"
+
+    delta_txt = ""
+    if d["delta"].get("has_prev"):
+        dt = d["delta"]
+        delta_txt = f" &nbsp;|&nbsp; So với đợt trước (<code>{dt['prev_folder']}</code>): <b>+{dt['new_count']} lỗi mới</b>, <b>-{dt['fixed_count']} đã vá</b>"
 
     ai_html = ""
     for label, txt in d["md_sections"]:
@@ -327,21 +368,23 @@ pre {{ background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px; border-radi
 .page-break {{ page-break-before: always; }}
 </style></head><body>
 <div class="cover">
-  <h1>BÁO CÁO KIỂM TOÁN BẢO MẬT HỆ THỐNG (AI SECURITY AUDIT v3.0)</h1>
-  <div class="sub">Đợt kiểm toán: <b>{d['folder']}</b> &nbsp;|&nbsp; Ngày xuất: <b>{d['generated_at']}</b> &nbsp;|&nbsp; Phân loại: Nội bộ — Bảo mật</div>
+  <h1>BÁO CÁO KIỂM TOÁN BẢO MẬT HỆ THỐNG (AI SECURITY AUDIT v3.5)</h1>
+  <div class="sub">Đợt kiểm toán: <b>{d['folder']}</b> &nbsp;|&nbsp; Ngày xuất: <b>{d['generated_at']}</b> &nbsp;|&nbsp; Điểm CIS: <b>{cis_label}</b>{delta_txt}</div>
 </div>
 <div class="kpis">
   <div class="kpi"><div class="num red">{d['kpi']['sast_critical']} / {d['kpi']['sast_high']}</div><div class="lbl">SAST Critical / High</div></div>
   <div class="kpi"><div class="num yel">{d['kpi']['sast_medium']} / {d['kpi']['sast_low']}</div><div class="lbl">SAST Medium / Low</div></div>
-  <div class="kpi"><div class="num red">{d['kpi']['secrets_total']}</div><div class="lbl">Lộ Secret / Key (Critical)</div></div>
-  <div class="kpi"><div class="num org">{d['kpi']['sca_crit_high']} / {d['kpi']['sca_total']}</div><div class="lbl">Trivy Critical-High / Tổng SCA</div></div>
+  <div class="kpi"><div class="num red">{d['kpi']['secrets_total']} / {d['kpi']['kev_count']}</div><div class="lbl">Lộ Secret / CISA KEV CVE</div></div>
+  <div class="kpi"><div class="num org">{cis_label}</div><div class="lbl">CIS Score · {len(d['attack_paths'])} Attack Paths</div></div>
 </div>
 <div class="plan-box">
   <b>Lộ Trình Khắc Phục Ưu Tiên (Remediation Roadmap):</b><br>
-  • <b>P0 (Khẩn cấp 24 giờ):</b> Xử lý toàn bộ lỗi <b>CRITICAL</b> &amp; <b>Lộ Secret</b> (xoay vòng mật khẩu/key, bật ModSecurity Virtual Patch chặn tạm trên WAF).<br>
-  • <b>P1 (Trong 7 ngày):</b> Vá các lỗi <b>HIGH / MEDIUM</b> trong mã nguồn, gỡ <code>network_mode: host</code>, nâng cấp các gói thư viện có CVE.<br>
-  • <b>P2 (Định kỳ 30 ngày):</b> Chuẩn hóa hardening mức <b>LOW</b>, cập nhật bản vá OS/CIS Benchmark và chạy quét hồi quy.
+  • <b>P0 (Khẩn cấp 24 giờ):</b> Xử lý toàn bộ lỗi <b>CRITICAL</b>, <b>CISA KEV CVE</b> &amp; <b>Lộ Secret</b> (xoay vòng mật khẩu/key, bật ModSecurity Virtual Patch chặn tạm trên WAF).<br>
+  • <b>P1 (Trong 7 ngày):</b> Cắt đứt các chuỗi <b>Attack Path</b>, vá lỗi <b>HIGH / MEDIUM</b>, gỡ <code>network_mode: host</code>, nâng cấp gói thư viện có CVE.<br>
+  • <b>P2 (Định kỳ 30 ngày):</b> Khắc phục các tiêu chí CIS <b>FAIL / WARN</b> để nâng Điểm An Toàn lên <b>&ge; 90/100 (Hạng A)</b>.
 </div>
+{cis_html}
+{ap_html}
 <h2>1. Tổng Hợp Phát Hiện Mã Nguồn &amp; Giải Pháp Vá (Semgrep SAST)</h2>
 <table><thead><tr><th style="width:9%">Mức độ</th><th style="width:19%">Mã Rule</th><th style="width:23%">Vị trí</th><th style="width:22%">Mô tả</th><th>Giải pháp khắc phục (Solution)</th></tr></thead><tbody>{sast_rows}</tbody></table>
 <h2>2. Phát Hiện Thông Tin Nhạy Cảm &amp; Giải Pháp (Gitleaks — Đã Che Giá Trị)</h2>
