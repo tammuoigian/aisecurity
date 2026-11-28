@@ -172,17 +172,19 @@ def save_jobs_store():
 
 JOBS = load_jobs_store()
 
-def start_job(title: str, steps: list):
+def start_job(title: str, steps: list, start_from: int = 0):
     jid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
     log_path = JOBS_DIR / f"{jid}.log"
     now_ts = time.time()
     total_steps = max(1, len(steps))
+    start_from = max(0, min(start_from, len(steps) - 1)) if steps else 0
     JOBS[jid] = {
         "id": jid, "title": title, "status": "RUNNING",
         "started": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "started_ts": now_ts, "finished": "", "finished_ts": None,
-        "progress": 5, "step_label": steps[0][0] if steps else "",
-        "total_steps": total_steps,
+        "progress": max(5, int((start_from / total_steps) * 95)),
+        "step_label": steps[start_from][0] if steps else "",
+        "total_steps": total_steps, "completed_steps": start_from,
         "log_file": str(log_path), "rc": None, "steps": steps,
     }
     save_jobs_store()
@@ -193,6 +195,10 @@ def start_job(title: str, steps: list):
             lf.flush()
             try:
                 for idx, (step_name, cmd_list) in enumerate(steps):
+                    if idx < start_from:
+                        lf.write(f"\n>>> [RESUME-SKIP] Bước {idx+1}/{total_steps} đã hoàn thành trước đó: {step_name}\n")
+                        lf.flush()
+                        continue
                     base = int((idx / total_steps) * 95)
                     span = max(5, int((1 / total_steps) * 95))
                     JOBS[jid]["step_label"] = f"Bước {idx+1}/{total_steps}: {step_name}"
@@ -221,7 +227,9 @@ def start_job(title: str, steps: list):
                     if rc != 0:
                         lf.write(f"\n[STOPPED] Step '{step_name}' exited with code {rc}\n")
                         break
+                    JOBS[jid]["completed_steps"] = idx + 1
                     JOBS[jid]["progress"] = min(98, base + span)
+                    save_jobs_store()
                 JOBS[jid]["rc"] = rc
                 JOBS[jid]["status"] = "COMPLETED" if rc == 0 else "FAILED"
                 if rc == 0:
@@ -237,10 +245,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v4.3")
+app = FastAPI(title="AI Security Audit Platform v4.4")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.3</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.4</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -250,7 +258,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v4.3</h1>
+<h1>AI Security Audit v4.4</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -259,7 +267,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.3 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.4 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -316,10 +324,14 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .sev-CRITICAL{background:#7f1d1d;color:#fecaca;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
 .sev-HIGH{background:#7c2d12;color:#fed7aa;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
 .sev-MEDIUM{background:#713f12;color:#fef08a;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
-.sev-LOW{background:#0c4a6e;color:#bae6fd;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
+.sev-LOW{background:#0c4a6e;color:#bae6fd;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block;white-space:nowrap}
+.sev-CRITICAL,.sev-HIGH,.sev-MEDIUM{white-space:nowrap}
+tbody tr:hover{background:rgba(30,41,59,.55)}
+.card{box-shadow:0 4px 20px rgba(0,0,0,.22)}
+.md a,td a{color:#38bdf8;text-decoration:none} .md a:hover,td a:hover{text-decoration:underline}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v4.3 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div><h1>AI Security Audit v4.4 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px"><span id="gpuPill" class="gpu-pill" title="Đang đọc thông số GPU..."><span class="gpu-dot"></span><span id="gpuText">GPU...</span></span><span id="ollamaBadge" class="badge">Đang kiểm tra Ollama...</span><a href="/logout" style="color:#94a3b8;margin-left:10px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -507,14 +519,14 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 
   <div id="tab-reports" class="hidden">
     <div class="card">
-      <h2>Kho Báo cáo Kiểm toán &amp; Xuất File Gửi Lãnh Đạo</h2>
+      <h2>Kho Báo cáo Kiểm toán &amp; Xuất Dữ liệu Kỹ thuật</h2>
       <div class="row">
         <div><label>Chọn đợt báo cáo</label><select id="repFolder" onchange="loadReportFiles()"></select></div>
         <div><label>Chọn file báo cáo</label><select id="repFile" onchange="viewReportFile()"></select></div>
       </div>
       <div style="margin-top:10px">
-        <button class="btn btn-danger" onclick="exportReport('pdf')">Xuất Báo Cáo PDF (Gửi Lãnh Đạo)</button>
-        <button class="btn btn-green" onclick="exportReport('excel')">Xuất Báo Cáo Excel (.xlsx — 5 Sheet)</button>
+        <button class="btn btn-danger" onclick="exportReport('pdf')">Xuất Báo cáo PDF (.pdf)</button>
+        <button class="btn btn-green" onclick="exportReport('excel')">Xuất Báo cáo Excel (.xlsx — 5 Sheet)</button>
         <button class="btn btn-primary" onclick="exportReport('sbom')">Tải SBOM (CycloneDX JSON)</button>
         <button class="btn btn-gray" onclick="delReportFolder()">Xóa đợt báo cáo này</button>
       </div>
@@ -531,7 +543,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
           <tr><td><b>Bước 1</b></td><td><b>Tạo Dự án / Máy chủ</b><br>(Tab 1 hoặc Tab 2)</td><td>Chọn 1 trong 3 cách:<br>• <b>Bấm <code>+ Tạo dự án mới</code> (Tab 1):</b> thêm máy chủ <b>Agentless SSH</b> (nhập IP, User, SSH Key/Password — <i>để trống ô đường dẫn</i> để tự dò toàn bộ OS, Firewall, Docker, DB và mã nguồn) hoặc trỏ <b>Thư mục Local</b>.<br>• <b>Thu thập 1-Dòng (Tab 2):</b> dùng cho Windows/Linux không mở SSH. Bấm tải file <code>.ps1</code> / <code>.sh</code> hoặc copy lệnh 1 dòng &rarr; hệ thống tự tạo dự án và tự chạy quét ngay.</td></tr>
           <tr><td><b>Bước 2</b></td><td><b>Chọn Chế độ Quét &amp; Model AI</b><br>(Tab 1)</td><td>• Bấm <b>Quét nhanh (~30–60 giây):</b> chạy thẳng Gitleaks (lộ mật khẩu) + Trivy (CVE thư viện) + Semgrep (35 rule 15 hệ sinh thái) — không dùng AI.<br>• Bấm <b>Kiểm toán AI sâu:</b> hộp thoại <b>Chọn Model AI</b> sẽ hiện ra để bạn chọn Model Quét chính và Model Phản biện (Critic) phù hợp thời gian mong muốn.</td></tr>
           <tr><td><b>Bước 3</b></td><td><b>Theo dõi Tiến trình &amp; Mở rộng</b><br>(Tab 3, 4, 5)</td><td>• <b>Tab 4 (Tiến trình &amp; Log):</b> theo dõi nhật ký chạy trực tiếp, dừng / chạy lại / xóa tác vụ.<br>• <b>Tab 3 (So sánh Bản vá):</b> dán <code>git diff</code> giữa 2 phiên bản để săn lỗi hồi quy &amp; biến thể.<br>• <b>Tab 5 (Bề mặt Web):</b> dùng Katana + httpx soi từ ngoài vào tìm Shadow API / JS endpoints.</td></tr>
-          <tr><td><b>Bước 4</b></td><td><b>Đọc &amp; Xuất Báo cáo</b><br>(Tab 6)</td><td>Xem trực tiếp bảng lỗi Gitleaks / Trivy / Semgrep &amp; báo cáo AI trên trình duyệt, sau đó bấm <b>Xuất Báo Cáo PDF (Gửi Lãnh Đạo)</b> hoặc <b>Xuất Báo Cáo Excel (.xlsx — 5 Sheet)</b>.</td></tr>
+          <tr><td><b>Bước 4</b></td><td><b>Đọc &amp; Xuất Báo cáo</b><br>(Tab 6)</td><td>Xem trực tiếp bảng lỗi Gitleaks / Trivy / Semgrep &amp; báo cáo AI trên trình duyệt, sau đó bấm <b>Xuất Báo cáo PDF (.pdf)</b> hoặc <b>Xuất Báo cáo Excel (.xlsx — 5 Sheet)</b>.</td></tr>
         </tbody>
       </table>
     </div>
@@ -817,7 +829,7 @@ async function loadJobs(){
     return `<tr><td><code>${j.id}</code></td><td>${j.title}${j.status==='RUNNING'&&j.step_label?`<br><small style="color:#94a3b8">${j.step_label}</small>`:''}</td><td class="st-${j.status}">${statusLabel(j.status)}</td>
     <td><div style="display:flex;justify-content:space-between;font-size:11.5px"><span>${pct}%</span><span style="color:#94a3b8">${dur>0?fmtDur(dur):'-'}</span></div><div class="pbar"><div class="pbar-fill ${cls}" style="width:${pct}%"></div></div></td>
     <td>${j.started}</td>
-    <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button>${j.status==='RUNNING'?`<button class="btn btn-danger" onclick="stopJob('${j.id}')">Dừng</button>`:`${j.steps?`<button class="btn btn-green" onclick="retryJob('${j.id}')">Chạy lại</button>`:''}<button class="btn btn-gray" onclick="delJob('${j.id}')">Xóa</button>`}</td></tr>`;
+    <td><button class="btn btn-primary" onclick="activeJobId='${j.id}';loadJobLog('${j.id}')">Xem Log</button>${j.status==='RUNNING'?`<button class="btn btn-danger" onclick="stopJob('${j.id}')">Dừng</button>`:`${j.steps&&j.status!=='COMPLETED'?`<button class="btn btn-ai" onclick="resumeJob('${j.id}')">Chạy tiếp</button>`:''}${j.steps?`<button class="btn btn-green" onclick="retryJob('${j.id}')">Chạy mới</button>`:''}<button class="btn btn-gray" onclick="delJob('${j.id}')">Xóa</button>`}</td></tr>`;
   }).join('');
   const cur = list.find(x=>x.id===activeJobId) || list.find(x=>x.status==='RUNNING');
   const wrap = document.getElementById('liveProgWrap');
@@ -924,6 +936,11 @@ async function clearFinishedJobs(){
   if(!confirm('Xóa toàn bộ lịch sử các tác vụ đã xong / lỗi / gián đoạn?')) return;
   await fetch('/api/jobs', {method:'DELETE'}); loadJobs();
   document.getElementById('jobLog').textContent = 'Đã dọn sạch lịch sử tác vụ.';
+}
+async function resumeJob(jid){
+  const r = await fetch('/api/jobs/'+jid+'/resume', {method:'POST'});
+  const d = await r.json();
+  if(d.job_id){ activeJobId = d.job_id; loadJobs(); loadJobLog(d.job_id); }
 }
 async function retryJob(jid){
   const r = await fetch('/api/jobs/'+jid+'/retry', {method:'POST'});
@@ -1056,7 +1073,7 @@ def api_rotate_token(request: Request):
 def download_win_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
-    script = f"""# AI Security Audit v4.3 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
+    script = f"""# AI Security Audit v4.4 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
 $ErrorActionPreference = 'SilentlyContinue'
 $hostName = $env:COMPUTERNAME
 $work = Join-Path $env:TEMP ("ace_audit_" + $hostName + "_" + (Get-Random))
@@ -1140,9 +1157,9 @@ if (Test-Path 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config') 
 }}
 $zip = "$work.zip"
 Compress-Archive -Path "$work\\*" -DestinationPath $zip -Force
-Write-Host "[AI Security Audit v4.3] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
+Write-Host "[AI Security Audit v4.4] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
 $resp = Invoke-RestMethod -Uri "{server_base}/api/collector/upload?token={token}&host=$hostName&os=windows" -Method Post -InFile $zip -ContentType "application/zip" -TimeoutSec 120
-Write-Host ("[AI Security Audit v4.3] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
+Write-Host ("[AI Security Audit v4.4] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
 Remove-Item $work, $zip -Recurse -Force -ErrorAction SilentlyContinue
 """
     hdrs = {"Content-Disposition": "attachment; filename=win_collector.ps1"} if dl else {}
@@ -1214,7 +1231,7 @@ done
 
 TGZ="${{WORK}}.tar.gz"
 tar -czf "$TGZ" -C "$WORK" .
-echo "[AI Security Audit v4.3] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
+echo "[AI Security Audit v4.4] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
 curl -fsS -X POST --data-binary @"$TGZ" -H "Content-Type: application/gzip" "{server_base}/api/collector/upload?token={token}&host=${{HOST}}&os=linux"
 echo ""
 rm -rf "$WORK" "$TGZ"
@@ -1512,9 +1529,9 @@ def api_report_content(folder: str, filename: str, request: Request):
         try:
             data = json.loads(raw)
             if "01_gitleaks" in fp.name and isinstance(data, list):
-                sol = report_exporter.REMEDIATION_KB["hardcoded"]
+                sol = ""
                 rows = "".join(
-                    f"<tr><td><span class='sev-CRITICAL'>CRITICAL</span></td><td>{x.get('RuleID','')}</td><td><code>{x.get('File','')}</code>:{x.get('StartLine','')}</td><td>***REDACTED***</td><td>{sol}</td></tr>"
+                    f"<tr><td><span class='sev-CRITICAL'>CRITICAL</span></td><td><code>{x.get('RuleID','')}</code></td><td><code>{x.get('File','')}</code>:{x.get('StartLine','')}</td><td>***REDACTED***</td><td>{report_exporter.get_secret_solution_html(x.get('RuleID',''), x.get('File',''))}</td></tr>"
                     for x in data[:100]
                 )
                 return {"html": f"<h3>Gitleaks — Lộ Thông Tin Nhạy Cảm ({len(data)} phát hiện — đã che giá trị)</h3><table><tr><th>Mức độ</th><th>Loại Secret</th><th>Vị trí</th><th>Giá trị</th><th>Giải pháp khắc phục (Solution)</th></tr>{rows}</table>"}
@@ -1526,7 +1543,7 @@ def api_report_content(folder: str, filename: str, request: Request):
                         sv = report_exporter.normalize_severity(v.get("Severity", "MEDIUM"))
                         fx = v.get("FixedVersion", "")
                         pkg = v.get("PkgName", "")
-                        sol = f"Nâng cấp gói <code>{pkg}</code> lên <code>{fx}</code>." if fx else f"Áp dụng WAF/Virtual Patch & theo dõi bản vá cho <code>{pkg}</code>."
+                        sol = report_exporter.get_trivy_solution_html(v.get("VulnerabilityID", ""), pkg, fx, tgt, v.get("PrimaryURL", ""))
                         is_k = enterprise_intel.is_cisa_kev(v.get('VulnerabilityID',''))
                         kev_b = " <span class='sev-CRITICAL'>CISA KEV</span>" if is_k else ""
                         v_rows.append(f"<tr><td><span class='sev-{sv}'>{sv}</span>{kev_b}</td><td><code>{v.get('VulnerabilityID','')}</code></td><td><code>{pkg}</code> ({v.get('InstalledVersion','')})</td><td><code>{fx or 'Chưa có'}</code></td><td>{sol}</td></tr>")
@@ -1553,7 +1570,7 @@ def api_report_content(folder: str, filename: str, request: Request):
                     msg = r.get("extra", {}).get("message", "")
                     sv = report_exporter.normalize_severity(r.get("extra", {}).get("severity", "INFO"), cid)
                     cwe, cvss = report_exporter.get_cwe_cvss(cid, sv)
-                    sol = report_exporter.get_solution(cid, msg)
+                    sol = report_exporter.get_solution_html(cid, msg, cwe)
                     loc = f"{r.get('path','')}:{r.get('start',{}).get('line','')}"
                     ffp = enterprise_intel.finding_fingerprint("sast", cid, loc)
                     cur_st = triage_map.get(ffp, {}).get("status", "OPEN")
@@ -1673,7 +1690,7 @@ def api_export_report(folder: str, fmt: str, request: Request):
     if fmt == "sbom":
         sbom = d / "08_sbom_cyclonedx.json"
         if not sbom.exists():
-            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v4.3 trở lên)")
+            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v4.4 trở lên)")
         return FileResponse(str(sbom), filename=f"SBOM_CycloneDX_{safe_name}.json", media_type="application/json")
     raise HTTPException(400, "Format must be pdf, excel, or sbom")
 
@@ -1725,13 +1742,29 @@ def api_delete_job(jid: str, request: Request):
     save_jobs_store()
     return {"ok": True}
 
+def _clean_job_title(t: str) -> str:
+    return re.sub(r"(\s*\(Retry\)|\s*\[Tiếp tục[^\]]*\])+", "", t or "").strip()
+
+@app.post("/api/jobs/{jid}/resume")
+def api_resume_job(jid: str, request: Request):
+    require_auth(request)
+    j = JOBS.get(jid)
+    if not j or not j.get("steps"):
+        raise HTTPException(404, "Job steps not available for resume")
+    done = int(j.get("completed_steps", 0))
+    if done >= len(j["steps"]):
+        done = max(0, len(j["steps"]) - 1)
+    base_title = _clean_job_title(j["title"])
+    new_jid = start_job(f"{base_title} [Tiếp tục từ bước {done+1}]", j["steps"], start_from=done)
+    return {"ok": True, "job_id": new_jid, "resumed_from_step": done + 1}
+
 @app.post("/api/jobs/{jid}/retry")
 def api_retry_job(jid: str, request: Request):
     require_auth(request)
     j = JOBS.get(jid)
     if not j or not j.get("steps"):
         raise HTTPException(404, "Job steps not available for retry")
-    new_jid = start_job(j["title"] + " (Retry)", j["steps"])
+    new_jid = start_job(_clean_job_title(j["title"]) + " (Retry)", j["steps"], start_from=0)
     return {"ok": True, "job_id": new_jid}
 
 @app.post("/api/triage")

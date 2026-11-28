@@ -1,4 +1,4 @@
-# AI Security Audit Platform (v4.3 — MCP Server & Cross-Agent Skill Edition)
+# AI Security Audit Platform (v4.4 — Expert SecOps & MCP Edition)
 
 **Nền tảng Kiểm Toán Bảo Mật Ứng Dụng, Hạ Tầng & Hệ Thống AI — 100% On-Premise (MCP Server `mcp-aisecurityaudit` + Cross-Agent `SKILL.md` + 52 Semgrep/Taint/OWASP-LLM Rules + OS CVE & SBOM CycloneDX + CWE/CVSS v3.1 + CIS Scorecard 0–100 + Wiz Attack Paths + CrowdStrike IOCs + 7-Question Gate + Katana/httpx/Nuclei/Nmap TLS).**
 
@@ -174,7 +174,7 @@ print('Created web/admin_credentials.txt')
 3. **`3. So sánh Bản vá`:** Dán `git diff` giữa 2 phiên bản để AI tìm lỗi hồi quy bảo mật (**Security Regression**) và săn biến thể chưa vá.
 4. **`4. Tiến trình & Log`:** Theo dõi thanh tiến độ `%`, bộ đếm thời gian `mm:ss`, nhật ký chạy trực tiếp (Smart Auto-Scroll + nút **`Xuống cuối log`**), cùng các nút **`Dừng`**, **`Chạy lại`**, **`Xóa`** và **`Xóa toàn bộ lịch sử đã xong/lỗi`**.
 5. **`5. Bề mặt Web`:** Nhập URL thuộc quyền sở hữu để chạy `Katana + httpx` tìm endpoint ẩn trong JS/SPA và chọn Model AI phân tích **Shadow API**.
-6. **`6. Báo cáo & Xuất file`:** Xem trực tiếp báo cáo Markdown và bảng HTML cho Gitleaks / Trivy / Semgrep, bấm **`Xuất Báo Cáo PDF (Gửi Lãnh Đạo)`**, **`Xuất Báo Cáo Excel (.xlsx — 5 Sheet)`** hoặc **`Xóa đợt báo cáo này`**.
+6. **`6. Báo cáo & Xuất file`:** Xem trực tiếp báo cáo Markdown, bảng Enterprise Intelligence (CIS `0–100`, Wiz Attack Paths, CISA KEV, DefectDojo Delta), bảng lỗi kèm **Giải pháp vá chuẩn Nessus/Qualys + link NVD/CWE/OWASP**, bấm **`Xuất Báo cáo PDF (.pdf)`**, **`Xuất Báo cáo Excel (.xlsx — 5 Sheet)`**, **`Tải SBOM (CycloneDX JSON)`** hoặc **`Xóa đợt báo cáo này`**.
 7. **`7. Hướng dẫn`:** Tài liệu quy trình 4 bước chuẩn, bảng tư vấn chọn 6 Model AI theo GPU VRAM + RAM và lưu ý bảo mật tích hợp ngay trên Web Portal.
 
 ---

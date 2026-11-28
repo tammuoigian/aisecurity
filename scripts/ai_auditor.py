@@ -306,8 +306,20 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
             active_pbs.append((title, snippets))
 
     total_pb = max(1, len(active_pbs))
-    print(f"[AI-Auditor v4.1] [2/3] Detected {len(active_pbs)}/14 applicable Playbooks (Sink-Centered Window) — running with {AUDIT_MODEL}...", flush=True)
+    cache_fp = report_dir / "_playbook_cache.json"
+    pb_cache = {}
+    if cache_fp.exists():
+        try:
+            pb_cache = json.loads(cache_fp.read_text(encoding="utf-8", errors="ignore"))
+        except Exception:
+            pb_cache = {}
+
+    print(f"[AI-Auditor v4.4] [2/3] Detected {len(active_pbs)}/14 applicable Playbooks (Checkpoint-Resume + Sink-Centered) — running with {AUDIT_MODEL}...", flush=True)
     for idx, (title, snippets) in enumerate(active_pbs, 1):
+        if title in pb_cache and pb_cache[title] and not pb_cache[title].startswith("Lỗi gọi Ollama"):
+            print(f"  -> [{idx}/{total_pb}] [RESUME-CACHE] Bỏ qua Playbook đã hoàn thành trước đó: {title}", flush=True)
+            draft_findings.append(f"## {title}\n\n{pb_cache[title]}\n")
+            continue
         extra_ctx = f"\n\n### Bối cảnh đa tầng (Auth Matrix / OS CVE / IOCs):\n{cross_ctx[:2500]}" if ("Playbook 11" in title or "Playbook 8" in title) and cross_ctx else ""
         prompt = (
             f"Hãy thực hiện **{title}** trên các đoạn ngữ cảnh thực tế sau đây.\n\n"
@@ -319,6 +331,9 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
         print(f"  -> [{idx}/{total_pb}] Auditing: {title} ...", flush=True)
         try:
             res = call_ollama(AUDIT_MODEL, sys_auditor, prompt, timeout=900)
+            if res and not res.startswith("Lỗi gọi Ollama"):
+                pb_cache[title] = res
+                cache_fp.write_text(json.dumps(pb_cache, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception as e:
             res = f"Lỗi gọi Ollama ({AUDIT_MODEL}): {e}"
         print(f"     Done in {time.time()-t0:.1f}s", flush=True)
