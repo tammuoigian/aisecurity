@@ -269,9 +269,9 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
         ("Playbook 8: OS, CIS Benchmark & MITRE ATT&CK Persistence Audit",
          (".md",),
          r"Live System|CIS|MITRE|PermitRootLogin|Unquoted Service|SUID|Listening"),
-        ("Playbook 9: AI / MCP Server & Prompt Injection Security",
+        ("Playbook 9: OWASP LLM Top 10, Agentic AI, RAG Poisoning & MCP Top 10 Security (AIGoat)",
          (".json", ".ts", ".js", ".py"),
-         r"mcpServers|ModelContextProtocol|tool_call|stdio|fastmcp|@mcp\.tool"),
+         r"mcpServers|ModelContextProtocol|tool_call|fastmcp|@mcp\.tool|system_prompt|WebBaseLoader|openai|anthropic|ollama|langchain|chromadb"),
         ("Playbook 10: WordPress / CMS & Next.js Specific Security",
          (".php", ".ts", ".tsx", ".js", ".mjs"),
          r"wp-config|DISALLOW_FILE_EDIT|xmlrpc|next\.config|middleware\.ts|use server|getServerSideProps"),
@@ -330,11 +330,15 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
 
     print(f"[AI-Auditor v4.1] [3/3] Running Evidence-Gated Critic Agent with {CRITIC_MODEL}...", flush=True)
     sys_critic = (
-        "Bạn là Chuyên gia Phản biện Bảo mật (Security Critic & Triage Lead — Evidence-Gated v4.1). "
+        "Bạn là Chuyên gia Phản biện Bảo mật (Security Critic & Triage Lead — v4.2 7-Question Validation Gate). "
         "Đọc bản nháp từ Agent 1 cùng dữ liệu đa tầng (Auth Matrix, OS/App CVE, CIS/IOCs). "
-        "LOẠI BỎ triệt để mọi cảnh báo giả hoặc nhận xét chung chung không trích dẫn được File:Dòng cụ thể. "
+        "ÁP DỤNG CỔNG KIỂM CHỨNG 7 CÂU HỎI (Claude-BugHunter Gate) cho từng phát hiện: "
+        "(1) Có File:Dòng & trích đoạn thật không? (2) Có tái hiện được thực tế không? (3) Có bị chặn sẵn bởi Auth/WAF không? "
+        "(4) Có phải dead code / file test không? (5) Tác động thực tế lên CIA (Bảo mật/Toàn vẹn/Sẵn sàng) là gì? "
+        "(6) Có phải chỉ là triệu chứng của 1 lỗi gốc sâu hơn không? (7) Mức độ CWE + CVSS v3.1 chính xác là bao nhiêu? "
+        "LOẠI BỎ triệt để mọi cảnh báo giả không qua cổng kiểm chứng. "
         "Xuất ra **Báo Cáo Điều Hành (Executive Summary & Prioritized Remediation Plan)** bằng tiếng Việt chuẩn mực gồm:\n"
-        "1) Bảng tổng hợp Top phát hiện xác thực nhất theo chuẩn **CRITICAL / HIGH / MEDIUM / LOW**, gắn rõ **`[CONFIRMED]`** hoặc **`[NEEDS-REVIEW]`** (ưu tiên P0 / P1 / P2);\n"
+        "1) Bảng tổng hợp Top phát hiện xác thực nhất theo chuẩn **CRITICAL / HIGH / MEDIUM / LOW** + **CWE / CVSS v3.1**, gắn rõ **`[CONFIRMED]`** hoặc **`[NEEDS-REVIEW]`** (ưu tiên P0 / P1 / P2);\n"
         "2) Liên kết chuỗi tấn công đa tầng (nếu có giữa Code + OS CVE + Container/IOCs);\n"
         "3) **Giải pháp vá lỗi chi tiết (Solutions — Code Diff / Config + ModSecurity Virtual Patch)**;\n"
         "4) Checklist bàn giao cho đội Dev & SysAdmin."

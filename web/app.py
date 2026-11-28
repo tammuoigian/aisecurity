@@ -34,6 +34,7 @@ REPORTS_ROOT = LAB_ROOT / "reports"
 PROJECTS_FILE = WEB_DIR / "projects.json"
 SECRETS_FILE = WEB_DIR / "project_secrets.json"
 AUTH_FILE = WEB_DIR / "auth.json"
+SCOPE_FILE = WEB_DIR / "scope.json"
 JOBS_DIR = WEB_DIR / "jobs"
 for _d in (KEYS_DIR, TARGETS_DIR, JOBS_DIR, REPORTS_ROOT):
     _d.mkdir(parents=True, exist_ok=True)
@@ -227,10 +228,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v4.1")
+app = FastAPI(title="AI Security Audit Platform v4.2")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.1</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.2</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -240,7 +241,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v4.1</h1>
+<h1>AI Security Audit v4.2</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -249,7 +250,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.1 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.2 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -309,7 +310,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .sev-LOW{background:#0c4a6e;color:#bae6fd;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v4.1 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div><h1>AI Security Audit v4.2 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px"><span id="gpuPill" class="gpu-pill" title="Đang đọc thông số GPU..."><span class="gpu-dot"></span><span id="gpuText">GPU...</span></span><span id="ollamaBadge" class="badge">Đang kiểm tra Ollama...</span><a href="/logout" style="color:#94a3b8;margin-left:10px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -472,7 +473,13 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 
   <div id="tab-katana" class="hidden">
     <div class="card">
-      <h2>Khám phá Bề mặt Web &amp; Endpoint ẩn (Katana + httpx)</h2>
+      <h2>Khám phá Bề mặt Web, Nuclei &amp; Nmap TLS (Có Kiểm soát Phạm vi Scope)</h2>
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:12px">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div style="flex:1;min-width:260px"><label>Phạm vi cho phép — Allowed Scope (Domain/IP, phân cách dấu phẩy; để trống = cho phép mọi mục tiêu thuộc quyền sở hữu)</label><input id="scopeAllow" placeholder="VD: example.com, aisecurity.vn, 192.168.1.10"></div>
+          <button class="btn btn-gray" onclick="saveScope()">Lưu Scope Guardrail</button>
+        </div>
+      </div>
       <p style="color:#94a3b8">Quét bề mặt ngoài vào (<b>Outside-In</b>) ở chế độ an toàn giới hạn tốc độ (<code>-rl 10 req/s</code>) cho các domain/URL thuộc quyền sở hữu: tự động tìm API ẩn trong JS bundle (Next.js/React/WordPress), kiểm tra TLS, Security Headers và Tech Stack.</p>
       <div class="row">
         <div><label>URL mục tiêu được phép quét (VD: https://app.domain.vn)</label><input id="kUrl" placeholder="https://..."></div>
@@ -651,7 +658,7 @@ function editProject(pid){
 async function init(){
   document.getElementById('stackBoxes').innerHTML = ALL_STACKS.map(s=>`<label><input type="checkbox" value="${s}" checked> ${s}</label>`).join('');
   toggleMode(); toggleAuth();
-  loadStatus(); loadTelemetry(); loadProjects(); loadReportFolders(); loadCollectorInfo();
+  loadStatus(); loadTelemetry(); loadProjects(); loadReportFolders(); loadCollectorInfo(); loadScope();
   setInterval(()=>{ loadJobs(); if(activeJobId) loadJobLog(activeJobId); }, 4000);
   setInterval(loadTelemetry, 3000);
 }
@@ -747,6 +754,7 @@ async function testSsh(pid){
 async function triggerScan(projectId, mode){
   const r = await fetch('/api/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({project_id:projectId, mode, audit_model:(document.getElementById('kModel')||{}).value||'qwen3-vl:8b', critic_model:(document.getElementById('criticModelSel')||{}).value||'deepseek-r1:14b'})});
   const d = await r.json();
+  if(!r.ok){ return alert('BỊ CHẶN BỞI SCOPE GUARDRAIL:\n' + (d.detail || 'Mục tiêu ngoài phạm vi cho phép!')); }
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
 async function runManualDiff(){
@@ -926,6 +934,15 @@ function exportReport(fmt){
   if(!folder) return alert('Vui lòng chọn đợt báo cáo!');
   window.open('/api/reports/'+encodeURIComponent(folder)+'/export/'+fmt, '_blank');
 }
+async function loadScope(){
+  try { const r = await fetch('/api/scope'); if(r.ok){ const d = await r.json(); const el = document.getElementById('scopeAllow'); if(el) el.value = (d.allowed||[]).join(', '); } } catch(e){}
+}
+async function saveScope(){
+  const raw = (document.getElementById('scopeAllow')||{}).value || '';
+  const allowed = raw.split(',').map(x=>x.trim()).filter(Boolean);
+  await fetch('/api/scope', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({allowed})});
+  alert('Đã lưu Scope Guardrail (' + (allowed.length ? allowed.join(', ') : 'Mở linh hoạt') + ')!');
+}
 async function runKatanaScan(){
   const url = document.getElementById('kUrl').value.trim();
   const name = document.getElementById('kName').value.trim() || 'web-surface';
@@ -1030,7 +1047,7 @@ def api_rotate_token(request: Request):
 def download_win_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
-    script = f"""# AI Security Audit v4.1 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
+    script = f"""# AI Security Audit v4.2 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
 $ErrorActionPreference = 'SilentlyContinue'
 $hostName = $env:COMPUTERNAME
 $work = Join-Path $env:TEMP ("ace_audit_" + $hostName + "_" + (Get-Random))
@@ -1114,9 +1131,9 @@ if (Test-Path 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config') 
 }}
 $zip = "$work.zip"
 Compress-Archive -Path "$work\\*" -DestinationPath $zip -Force
-Write-Host "[AI Security Audit v4.1] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
+Write-Host "[AI Security Audit v4.2] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
 $resp = Invoke-RestMethod -Uri "{server_base}/api/collector/upload?token={token}&host=$hostName&os=windows" -Method Post -InFile $zip -ContentType "application/zip" -TimeoutSec 120
-Write-Host ("[AI Security Audit v4.1] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
+Write-Host ("[AI Security Audit v4.2] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
 Remove-Item $work, $zip -Recurse -Force -ErrorAction SilentlyContinue
 """
     hdrs = {"Content-Disposition": "attachment; filename=win_collector.ps1"} if dl else {}
@@ -1188,7 +1205,7 @@ done
 
 TGZ="${{WORK}}.tar.gz"
 tar -czf "$TGZ" -C "$WORK" .
-echo "[AI Security Audit v4.1] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
+echo "[AI Security Audit v4.2] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
 curl -fsS -X POST --data-binary @"$TGZ" -H "Content-Type: application/gzip" "{server_base}/api/collector/upload?token={token}&host=${{HOST}}&os=linux"
 echo ""
 rm -rf "$WORK" "$TGZ"
@@ -1526,6 +1543,7 @@ def api_report_content(folder: str, filename: str, request: Request):
                     cid = r.get("check_id", "").split(".")[-1]
                     msg = r.get("extra", {}).get("message", "")
                     sv = report_exporter.normalize_severity(r.get("extra", {}).get("severity", "INFO"), cid)
+                    cwe, cvss = report_exporter.get_cwe_cvss(cid, sv)
                     sol = report_exporter.get_solution(cid, msg)
                     loc = f"{r.get('path','')}:{r.get('start',{}).get('line','')}"
                     ffp = enterprise_intel.finding_fingerprint("sast", cid, loc)
@@ -1533,7 +1551,7 @@ def api_report_content(folder: str, filename: str, request: Request):
                     sel_html = f"<select style='padding:3px 6px;font-size:11px;width:110px' onchange=\"setTriage('{ffp}',this)\">" + "".join(
                         f"<option value='{k}'{' selected' if k==cur_st else ''}>{lbl}</option>" for k, lbl in opts_lbl
                     ) + "</select>"
-                    items.append((sev_ord.get(sv, 9), f"<tr><td><span class='sev-{sv}'>{sv}</span></td><td><code>{cid}</code></td><td><code>{loc}</code></td><td>{msg}</td><td>{sol}</td><td>{sel_html}</td></tr>"))
+                    items.append((sev_ord.get(sv, 9), f"<tr><td><span class='sev-{sv}'>{sv}</span><br><small style='color:#94a3b8'>{cwe} · {cvss}</small></td><td><code>{cid}</code></td><td><code>{loc}</code></td><td>{msg}</td><td>{sol}</td><td>{sel_html}</td></tr>"))
                 items.sort(key=lambda x: x[0])
                 rows = "".join(x[1] for x in items)
                 return {"html": f"<h3>Semgrep SAST — Phân tích mã nguồn tĩnh ({len(res)} phát hiện)</h3><table><tr><th>Mức độ</th><th>Quy tắc</th><th>Vị trí</th><th>Mô tả</th><th>Giải pháp khắc phục (Solution)</th><th>Trạng thái</th></tr>{rows}</table>"}
@@ -1541,6 +1559,22 @@ def api_report_content(folder: str, filename: str, request: Request):
             pass
     return {"html": f"<pre>{raw[:30000]}</pre>"}
 
+
+@app.get("/api/scope")
+def api_get_scope(request: Request):
+    require_auth(request)
+    if SCOPE_FILE.exists():
+        try: return json.loads(SCOPE_FILE.read_text(encoding="utf-8"))
+        except Exception: pass
+    return {"allowed": []}
+
+@app.post("/api/scope")
+async def api_set_scope(request: Request):
+    require_auth(request)
+    body = await request.json()
+    allowed = [str(x).strip().lower() for x in (body.get("allowed") or []) if str(x).strip()]
+    SCOPE_FILE.write_text(json.dumps({"allowed": allowed}, indent=2), encoding="utf-8")
+    return {"ok": True, "allowed": allowed}
 
 @app.post("/api/katana-scan")
 async def api_katana_scan(request: Request):
@@ -1554,7 +1588,16 @@ async def api_katana_scan(request: Request):
     with_ai = bool(body.get("with_ai", False))
     with_nuclei = bool(body.get("with_nuclei", True))
     with_nmap = bool(body.get("with_nmap", True))
-    host_only = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0]
+    host_only = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0].lower()
+    if SCOPE_FILE.exists():
+        try:
+            allowed_sc = json.loads(SCOPE_FILE.read_text(encoding="utf-8")).get("allowed") or []
+            if allowed_sc and not any(host_only == a or host_only.endswith("." + a) for a in allowed_sc):
+                raise HTTPException(403, f"Host '{host_only}' không nằm trong Allowed Scope ({', '.join(allowed_sc)})!")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     tag = f"{datetime.now().strftime('%Y-%m-%d_%H%M')}_katana_{name}"
     wsl_rep = f"/mnt/f/ERP-Audit-Lab/reports/{tag}"
     nuc_part = (
@@ -1576,7 +1619,7 @@ async def api_katana_scan(request: Request):
         f"echo '[2/3] Running Katana safe crawl (depth={depth}, rate-limit=10/s)...' && "
         f"katana -u '{url}' -d {depth} -c 3 -rl 10 -jc -kf all -silent -o '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; "
         f"{nuc_part}{nmap_part}"
-        f"{{ echo '# Báo Cáo Khám Phá Bề Mặt Web & Nuclei Safe Scan ({url})'; echo ''; "
+        f"{{ echo '# Báo Cáo Khám Phá Bề Mặt Web, Nuclei & Nmap TLS ({url})'; echo ''; echo '## 0. High-Value Targets — Endpoint Nhạy Cảm Ưu Tiên (BugHunter Surface Ranking)'; echo '```text'; (grep -iE '(graphql|swagger|api-docs|openapi|admin|login|auth|token|oauth|\.env|\.git|actuator|phpinfo|wp-admin|upload|mcp|debug|metrics)' '{wsl_rep}/katana_urls.txt' 2>/dev/null | sort -u | head -n 40 || true); echo '```'; "
         f"echo '## 1. HTTPX Fingerprint (Tech Stack / Server / TLS / Status)'; echo '```text'; cat '{wsl_rep}/httpx.txt'; echo '```'; "
         f"echo '## 2. Nuclei Safe Vulnerability Scan (Critical / High / Medium)'; echo '```text'; ([ -s '{wsl_rep}/nuclei.txt' ] && cat '{wsl_rep}/nuclei.txt' || echo 'Không phát hiện lỗ hổng Nuclei (Safe Profile).'); echo '```'; "
         f"echo '## 3. Nmap Service Version & TLS Cipher Audit (Qualys/Nessus-grade)'; echo '```text'; ([ -s '{wsl_rep}/nmap_tls.txt' ] && head -n 120 '{wsl_rep}/nmap_tls.txt' || echo 'Bỏ qua Nmap.'); echo '```'; echo '## 4. Discovered Endpoints & JS Routes (Katana — top 200)'; echo '```text'; head -n 200 '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; echo '```'; "
@@ -1621,7 +1664,7 @@ def api_export_report(folder: str, fmt: str, request: Request):
     if fmt == "sbom":
         sbom = d / "08_sbom_cyclonedx.json"
         if not sbom.exists():
-            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v4.1 trở lên)")
+            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v4.2 trở lên)")
         return FileResponse(str(sbom), filename=f"SBOM_CycloneDX_{safe_name}.json", media_type="application/json")
     raise HTTPException(400, "Format must be pdf, excel, or sbom")
 

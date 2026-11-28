@@ -36,7 +36,36 @@ REMEDIATION_KB = {
     "postgres": "Giới hạn `pg_hba.conf` dùng `scram-sha-256`, không dùng `trust` hay mở `0.0.0.0/0` ra Internet; bật SSL cho kết nối DB.",
     "mysql": "Bind `127.0.0.1` hoặc mạng nội bộ, xóa tài khoản anonymous/root từ xa và bắt buộc kết nối qua TLS.",
     "mssql": "Cập nhật SQL Server Cumulative Update (CU/GDR) mới nhất, tắt `xp_cmdshell`, đổi cổng mặc định và giới hạn Windows Firewall chỉ cho IP APP/API.",
+    "llm01": "Tách biệt chặt chẽ System Prompt và User Input, áp dụng input/output guardrails và lọc dữ liệu RAG trước khi đưa vào ngữ cảnh LLM.",
+    "llm02": "Không bao giờ truyền trực tiếp output của LLM vào eval/exec/SQL/HTML; bắt buộc dùng parser cấu trúc (JSON Schema) và allowlist hành động.",
+    "llm06": "Áp dụng nguyên tắc quyền tối thiểu (Least Privilege) cho AI Agent/MCP tools, loại bỏ shell=True và yêu cầu xác nhận con người (HITL) với thao tác ghi/xóa.",
+    "llm07": "Kiểm soát allowlist domain trước khi nạp URL vào RAG và gắn nhãn dữ liệu ngoài là untrusted để chống Indirect Prompt Injection.",
 }
+
+CWE_CVSS_MAP = [
+    (("sqli", "sql-injection"), "CWE-89", "9.8"),
+    (("command-injection", "cmdi", "rce", "shell-exec", "llm02", "llm06"), "CWE-78", "9.8"),
+    (("deserialization", "binaryformatter"), "CWE-502", "9.8"),
+    (("hardcoded", "secret", "mcp01"), "CWE-798", "9.1"),
+    (("nosql",), "CWE-943", "8.6"),
+    (("ssrf", "llm07"), "CWE-918", "8.2"),
+    (("path-traversal", "lfi"), "CWE-22", "8.1"),
+    (("llm01", "prompt-injection"), "CWE-77", "8.1"),
+    (("docker-privileged", "docker-sock"), "CWE-250", "8.8"),
+    (("idor", "auth", "jwt"), "CWE-639", "8.1"),
+    (("xss", "dangerouslysetinnerhtml"), "CWE-79", "6.8"),
+    (("cors",), "CWE-942", "6.5"),
+    (("docker-network-host", "mcp02"), "CWE-284", "6.5"),
+    (("tls",), "CWE-327", "5.9"),
+]
+
+def get_cwe_cvss(rule_id: str, severity: str = "MEDIUM") -> tuple:
+    rid = (rule_id or "").lower()
+    for keys, cwe, cvss in CWE_CVSS_MAP:
+        if any(k in rid for k in keys):
+            return cwe, cvss
+    fallback = {"CRITICAL": ("CWE-20", "9.1"), "HIGH": ("CWE-20", "7.8"), "MEDIUM": ("CWE-16", "5.5"), "LOW": ("CWE-16", "3.1")}
+    return fallback.get((severity or "MEDIUM").upper(), ("CWE-16", "5.0"))
 
 CRITICAL_HINTS = ("sqli", "sql-injection", "rce", "command-injection", "deserialization", "binaryformatter", "docker-privileged", "docker-sock", "auth-bypass", "eval", "hardcoded-secret")
 HIGH_HINTS = ("nosql", "ssrf", "path-traversal", "xxe", "jwt", "xss", "dangerouslysetinnerhtml", "tls-verify-disabled", "mongodb-no-auth", "postgres-trust", "mcp")
@@ -86,8 +115,11 @@ def _gather_report_data(report_dir: Path):
         raw_s = r.get("extra", {}).get("severity", "INFO")
         msg = r.get("extra", {}).get("message", "")
         sev = normalize_severity(raw_s, cid)
+        cwe, cvss = get_cwe_cvss(cid, sev)
         sg_norm.append({
             "severity": sev,
+            "cwe": cwe,
+            "cvss": cvss,
             "rule_id": cid,
             "path": r.get("path", "").replace("/mnt/f/ERP-Audit-Lab/repo/", "").replace("/mnt/f/ERP-Audit-Lab/targets/", ""),
             "line": r.get("start", {}).get("line", ""),
@@ -224,17 +256,17 @@ def export_excel(report_dir: Path, out_xlsx: Path) -> Path:
     ws1.column_dimensions["B"].width = 22
     ws1.column_dimensions["C"].width = 50
 
-    # Sheet 2: Lo_Hong_SAST (kèm Giải pháp vá)
+    # Sheet 2: Lo_Hong_SAST (kèm CWE, CVSS & Giải pháp vá)
     ws2 = wb.create_sheet("Lo_Hong_SAST")
-    ws2.append(["STT", "Mức độ", "Mã Rule", "Đường dẫn File", "Dòng", "Mô tả chi tiết", "Giải pháp khắc phục (Solution)"])
+    ws2.append(["STT", "Mức độ", "CWE / CVSS", "Mã Rule", "Đường dẫn File", "Dòng", "Mô tả chi tiết", "Giải pháp khắc phục (Solution)"])
     for cell in ws2[1]:
         cell.fill = hdr_fill; cell.font = hdr_font
     for idx, r in enumerate(d["semgrep"], 1):
-        ws2.append([idx, r["severity"], r["rule_id"], r["path"], r["line"], r["message"], r["solution"]])
+        ws2.append([idx, r["severity"], f"{r['cwe']} ({r['cvss']})", r["rule_id"], r["path"], r["line"], r["message"], r["solution"]])
         ws2.cell(idx + 1, 2).fill = sev_fills.get(r["severity"], low_fill)
-        ws2.cell(idx + 1, 7).alignment = Alignment(wrap_text=True, vertical="top")
-    ws2.auto_filter.ref = f"A1:G{max(1, len(d['semgrep'])+1)}"
-    for col, w in [("A", 7), ("B", 13), ("C", 32), ("D", 48), ("E", 8), ("F", 48), ("G", 60)]:
+        ws2.cell(idx + 1, 8).alignment = Alignment(wrap_text=True, vertical="top")
+    ws2.auto_filter.ref = f"A1:H{max(1, len(d['semgrep'])+1)}"
+    for col, w in [("A", 7), ("B", 13), ("C", 16), ("D", 32), ("E", 45), ("F", 8), ("G", 45), ("H", 58)]:
         ws2.column_dimensions[col].width = w
 
     # Sheet 3: Lo_Secret
@@ -290,7 +322,7 @@ def _find_edge():
 def export_pdf(report_dir: Path, out_pdf: Path) -> Path:
     d = _gather_report_data(report_dir)
     sast_rows = "".join(
-        f"<tr><td><span class='sev-{r['severity']}'>{r['severity']}</span></td>"
+        f"<tr><td><span class='sev-{r['severity']}'>{r['severity']}</span><br><small><code>{r['cwe']} · {r['cvss']}</code></small></td>"
         f"<td><code>{r['rule_id']}</code></td>"
         f"<td><code>{r['path']}:{r['line']}</code></td>"
         f"<td>{r['message']}</td>"

@@ -1,0 +1,56 @@
+rules:
+  # OWASP LLM01: Prompt Injection (direct user input interpolated into system/LLM prompt)
+  - id: owasp-llm01-prompt-injection-py
+    languages: [python]
+    severity: WARNING
+    message: "OWASP LLM01 (Prompt Injection): Nối trực tiếp biến đầu vào vào chuỗi system/LLM prompt mà không có tách biệt ngữ cảnh hoặc kiểm duyệt."
+    pattern-regex: "(?i)(?:system_prompt|role['\"]\\s*:\\s*['\"]system['\"])[^\\n]{0,120}(?:request\\.(?:args|form|json|body)|input\\()"
+
+  # OWASP LLM02/LLM05: Insecure Output Handling (LLM output executed in Python)
+  - id: owasp-llm02-insecure-output-exec-py
+    languages: [python]
+    severity: ERROR
+    message: "OWASP LLM02 (Insecure Output Handling): Đưa đầu ra từ LLM trực tiếp vào eval()/exec()/os.system()/subprocess (nguy cơ RCE qua Prompt Injection)."
+    pattern-regex: "(?i)(?:eval|exec|os\\.system|subprocess\\.(?:run|Popen))\\s*\\([^\\n)]*(?:completion|llm_out|ai_resp|model_output|message\\[['\"]content['\"]\\])"
+
+  # OWASP LLM02/LLM05: Insecure Output Handling (JS/TS eval or XSS)
+  - id: owasp-llm02-insecure-output-js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "OWASP LLM02 (Insecure Output Handling): Đưa đầu ra LLM trực tiếp vào eval() / dangerouslySetInnerHTML mà không sanitize."
+    pattern-regex: "(?i)(?:eval\\s*\\(|dangerouslySetInnerHTML\\s*=)[^\\n]{0,120}(?:completion|llmResponse|aiReply|choices\\[0\\])"
+
+  # OWASP LLM06: Excessive Agency (Agentic/MCP tool with unrestricted shell=True)
+  - id: owasp-llm06-agentic-excessive-agency
+    languages: [python]
+    severity: ERROR
+    message: "OWASP LLM06 / Agentic AI: Tool của AI Agent/MCP gọi shell=True hoặc os.system không có lớp kiểm soát quyền tối thiểu."
+    pattern-regex: "(?s)@(?:mcp\\.)?tool[^\\n]*\\n(?:[^\\n]*\\n){0,12}[^\\n]*(?:shell\\s*=\\s*True|os\\.system\\s*\\()"
+
+  # OWASP MCP01: Hardcoded API Key/Secret inside MCP server config
+  - id: owasp-mcp01-hardcoded-secret-config
+    languages: [json]
+    severity: ERROR
+    message: "OWASP MCP01: Phát hiện API Key / Token / Password cứng trong cấu hình mcpServers — cần chuyển sang biến môi trường an toàn."
+    pattern-regex: "(?i)\"(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY|GITHUB_TOKEN|API_KEY|SECRET|PASSWORD)\"\\s*:\\s*\"[A-Za-z0-9_\\-]{12,}\""
+
+  # OWASP MCP02: Exposed MCP Server bound to 0.0.0.0 without auth
+  - id: owasp-mcp02-exposed-bind-all
+    languages: [python, javascript, typescript]
+    severity: WARNING
+    message: "OWASP MCP02: MCP Server lắng nghe trên 0.0.0.0 — cần bind 127.0.0.1 hoặc bổ sung lớp xác thực Token/mTLS."
+    pattern-regex: "(?i)(?:FastMCP|mcp\\.run|McpServer)[^\\n]{0,120}0\\.0\\.0\\.0"
+
+  # OWASP MCP03: Command execution inside JS/TS MCP server
+  - id: owasp-mcp03-js-shell-exec
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "OWASP MCP03: Handler MCP gọi child_process.exec/execSync trực tiếp — nguy cơ Command Injection từ Tool Poisoning."
+    pattern-regex: "(?i)(?:child_process|execSync|exec\\()[^\\n]{0,100}(?:args\\.|params\\.|arguments\\.)"
+
+  # OWASP LLM07 / RAG: Untrusted URL Loader (SSRF + Indirect Prompt Injection)
+  - id: owasp-llm07-rag-untrusted-loader
+    languages: [python]
+    severity: WARNING
+    message: "OWASP LLM07 (RAG Poisoning / SSRF): Nạp URL đầu vào người dùng vào WebBaseLoader/UnstructuredURLLoader mà không có allowlist domain."
+    pattern-regex: "(?i)(?:WebBaseLoader|UnstructuredURLLoader|SeleniumURLLoader)\\s*\\([^\\n)]*(?:request\\.|user_url|url)"
