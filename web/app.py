@@ -710,7 +710,6 @@ tbody tr:hover{background:rgba(30,41,59,.55)}
       <div style="margin:6px 0 8px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kNuclei" checked style="width:auto"> Bật <b>ProjectDiscovery Nuclei (Safe Profile)</b> — Quét CVE Web, Misconfiguration, Exposed Panels (-severity critical,high,medium -rl 10)</label></div>
       <div style="margin:0 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kNmap" checked style="width:auto"> Bật <b>Nmap Safe Service &amp; TLS Cipher Audit</b> — Soi phiên bản dịch vụ &amp; giao thức TLS 1.0/1.1/Cipher yếu (Qualys/Nessus-grade)</label></div>
       <div style="margin:0 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kSubfinder" style="width:auto"> Bật <b>ProjectDiscovery Subfinder</b> — Tự động dò toàn bộ Subdomain bị lãng quên (<code>dev.</code>, <code>uat.</code>, <code>old.</code>) &amp; kiểm tra live bằng <code>httpx</code></label></div>
-      <div style="margin:0 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kSubfinder" style="width:auto"> Bật <b>ProjectDiscovery Subfinder</b> — Tự động dò toàn bộ Subdomain bị lãng quên (<code>dev.</code>, <code>uat.</code>, <code>old.</code>) &amp; kiểm tra live bằng <code>httpx</code></label></div>
       <button class="btn btn-ai" onclick="runKatanaScan()">Chạy Khám phá Bề mặt Web &amp; Nuclei</button>
     </div>
   </div>
@@ -1233,9 +1232,8 @@ async function runKatanaScan(){
   const with_nuclei = document.getElementById('kNuclei') ? document.getElementById('kNuclei').checked : true;
   const with_nmap = document.getElementById('kNmap') ? document.getElementById('kNmap').checked : true;
   const with_subfinder = document.getElementById('kSubfinder') ? document.getElementById('kSubfinder').checked : false;
-  const with_subfinder = document.getElementById('kSubfinder') ? document.getElementById('kSubfinder').checked : false;
   if(!url.startsWith('http')) return alert('Vui lòng nhập URL hợp lệ bắt đầu bằng http:// hoặc https://');
-  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai,with_nuclei,with_nmap,with_subfinder,with_subfinder, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
+  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai,with_nuclei,with_nmap,with_subfinder, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
   const d = await r.json();
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
@@ -1964,7 +1962,6 @@ async def api_katana_scan(request: Request):
     with_ai = bool(body.get("with_ai", False))
     with_nuclei = bool(body.get("with_nuclei", True))
     with_nmap = bool(body.get("with_nmap", True))
-    with_subfinder = bool(body.get("with_subfinder", False))
     with_subfinder = bool(body.get("with_subfinder", False))
     host_only = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0].lower()
     if SCOPE_FILE.exists():
