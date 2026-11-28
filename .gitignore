@@ -19,3 +19,9 @@ web/jobs/
 *.xlsx
 *.log
 *.tmp
+
+# v5.0 local runtime configs (never commit!)
+web/notifications.json
+web/schedules.json
+web/scope.json
+web/finding_triage.json

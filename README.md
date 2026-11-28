@@ -1,6 +1,6 @@
-# AI Security Audit Platform (v4.4 — Expert SecOps & MCP Edition)
+# AI Security Audit Platform (v5.0 — Autonomous Standalone Enterprise Suite)
 
-**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng, Hạ Tầng & Hệ Thống AI — 100% On-Premise (MCP Server `mcp-aisecurityaudit` + Cross-Agent `SKILL.md` + 52 Semgrep/Taint/OWASP-LLM Rules + OS CVE & SBOM CycloneDX + CWE/CVSS v3.1 + CIS Scorecard 0–100 + Wiz Attack Paths + CrowdStrike IOCs + 7-Question Gate + Katana/httpx/Nuclei/Nmap TLS).**
+**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng, Hạ Tầng & Hệ Thống AI Độc Lập — 100% On-Premise (Subfinder + Katana/httpx/Nuclei/Nmap TLS + 52 Semgrep/Taint/OWASP-LLM Rules + OS CVE & SBOM CycloneDX + CIS Scorecard 0–100 + Wiz Attack Paths + CrowdStrike Standalone Threat Hunting + Built-in Scheduler & Telegram Delta Alert + MCP Server `mcp-aisecurityaudit` + Cross-Agent `SKILL.md`).**
 
 Được thiết kế theo chuẩn **CTEM (Continuous Threat Exposure Management)** & **Grey-Box Security Assessment ("Trong soi ra — Ngoài soi vào")**, giúp phát hiện các **lỗ hổng chưa biết tới (0-day, lỗi logic nghiệp vụ, IDOR, SQLi sâu trong mã nguồn/DLL, NoSQLi, Shadow API, sai cấu hình hạ tầng)** mà WAF hay máy quét lỗ hổng truyền thống thường bỏ sót — **0 byte mã nguồn rời khỏi mạng nội bộ**.
 
@@ -35,8 +35,8 @@
 - **Qualys VMDR / Tenable Nessus — OS-Level CVE Engine + SBOM CycloneDX + Nmap TLS Cipher Audit:** Tự động kéo `/var/lib/dpkg/status` & chạy `trivy rootfs` quét **100% CVE mọi gói hệ điều hành Linux** (`OpenSSL`, `OpenSSH`, `Nginx`, `Kernel`, `PostgreSQL`, `Docker`...), gắn cờ **`CISA KEV`**, soi hạn chứng chỉ SSL/TLS, xuất **SBOM CycloneDX (`08_sbom_cyclonedx.json`)** tải 1-click trên Tab 6, và tích hợp **`Nmap -sV --script=ssl-enum-ciphers`** tại Tab 5.
 - **Săn "Lỗ hổng chưa biết đến" & OWASP LLM/MCP Top 10 (BugHunter + AIGoat):** **52 rule Semgrep** (35 Multi-Stack + 9 Dataflow Taint-Mode + 8 OWASP LLM/Agentic/MCP Top 10), **Scope Guardrail (Deny-Wins)** & **High-Value Target Ranking** tại Tab 5, tự động gắn **`CWE-xxx` + điểm `CVSS v3.1`** trên Web/PDF/Excel, **Sink-Centered Context ±22 dòng**, **14 Auto-Adaptive AI Playbooks** và **7-Question Validation Gate** gắn nhãn **`[CONFIRMED]` / `[NEEDS-REVIEW]`**.
 - **Wiz — Deep Container Inspection & Attack Paths:** Kiểm tra sâu Docker `Capabilities` (`SYS_ADMIN`, `SYS_PTRACE`), `PidMode`, `ReadonlyRootfs`, phát hiện tên biến môi trường `ENV` chứa bí mật (che giá trị), và nối chuỗi tấn công ghép (**Toxic Combinations**).
-- **CrowdStrike / Rapid7 — Expert Threat Hunting & IOCs:** Săn **Deleted-but-Running Binaries** (`/proc/*/exe (deleted)`), rootkit **`/etc/ld.so.preload`**, **Webshell PHP/ASPX**, **WMI Persistence**, **Registry Run Keys**, **SMB Shares `Everyone`**, kết nối `ESTABLISHED` và lịch sử đăng nhập.
-- **Lynis / CIS-CAT / DefectDojo:** Chấm điểm **CIS Scorecard `0–100` (Hạng A–F)**, so sánh biến động **`+N mới / -M đã vá`**, quản trị vòng đời lỗ hổng (Triage Dropdown), và **Live GPU Telemetry (`/api/telemetry`)**.
+- **CrowdStrike / Rapid7 — Standalone Expert Threat Hunting & IOCs (không cần EDR/Wazuh):** Săn **Deleted-but-Running Binaries** (`/proc/*/exe (deleted)`), rootkit **`/etc/ld.so.preload`**, **Webshell PHP/ASPX**, **Cryptominer (CPU >= 85% & Mining Pool ports)**, **SSH/RDP Brute-Force (24h — `/var/log/auth.log` & Event ID 4625)**, **User mới tạo (Event 4720)**, **WMI Persistence**, **Registry Run Keys**, **Cloud/K8s Credential Exposure (`~/.aws/credentials`, `~/.kube/config`)**, và **Windows Server EOL**.
+- **Tự động hóa vận hành (v5.0):** Tích hợp **`ProjectDiscovery Subfinder`** dò subdomain bị lãng quên tại Tab 5, **Lịch quét tự động (`Hằng ngày` / `Hằng tuần`)** + **Cảnh báo Telegram Delta Alert** ngay tại Tab 4, **Checkpoint/Resume 2 tầng**, và **Live GPU Telemetry (`/api/telemetry`)**.
 
 ---
 

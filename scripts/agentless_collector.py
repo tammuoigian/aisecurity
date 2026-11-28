@@ -184,6 +184,27 @@ echo "[CrowdStrike Rootkit Check: /etc/ld.so.preload]"
 echo ""
 echo "[Webshell Indicator Scan (/var/www — *.php/*.phtml, fast bounded)]"
 timeout 10s grep -rnE --include='*.php' --include='*.phtml' --exclude-dir=node_modules --exclude-dir=uploads --exclude-dir=cache --exclude-dir=vendor --exclude-dir=.git "(eval\s*\(\s*base64_decode|system\s*\(\s*\\\$_|shell_exec\s*\(\s*\\\$_|passthru\s*\(\s*\\\$_)" /var/www 2>/dev/null | head -n 15 | sed 's/^/IOC_WEBSHELL_SUSPECT: /' || echo "  None"
+echo ""
+echo "[CrowdStrike Standalone: SSH Brute-Force Top IPs (24h)]"
+BF=$(timeout 8s grep -i "Failed password" /var/log/auth.log 2>/dev/null | tail -n 500 | grep -oE 'from ([0-9]{1,3}\.){3}[0-9]{1,3}' | sort | uniq -c | sort -rn | head -n 8 || true)
+if [ -n "$BF" ]; then
+  echo "$BF"
+  TOP_CNT=$(echo "$BF" | head -n 1 | awk '{print $1}')
+  [ "${TOP_CNT:-0}" -ge 30 ] && echo "IOC_BRUTEFORCE_HIGH: Detected >=30 failed SSH attempts from single IP"
+else
+  echo "  None or auth.log not readable"
+fi
+echo ""
+echo "[CrowdStrike Standalone: Cryptominer & High-CPU Check]"
+MINER=$(ps -eo pid,pcpu,user,cmd --sort=-pcpu --no-headers 2>/dev/null | awk '$2+0 >= 85.0 {print "IOC_CRYPTOMINER_HIGH_CPU:", $0}' | head -n 5 || true)
+POOL=$(ss -tnp state established 2>/dev/null | grep -E ':(3333|4444|5555|14444|14433)\b' | sed 's/^/IOC_CRYPTOMINER_POOL: /' || true)
+[ -n "$MINER$POOL" ] && printf '%s\n%s\n' "$MINER" "$POOL" || echo "  Clean"
+echo ""
+echo "[Wiz Standalone: Cloud / K8s Credentials & Recently Modified System Files (7d)]"
+for cf in /root/.aws/credentials /root/.kube/config /home/*/.aws/credentials /home/*/.kube/config; do
+  [ -f "$cf" ] && echo "IOC_CLOUD_CRED_EXPOSED: $cf ($(stat -c '%a' "$cf" 2>/dev/null))"
+done
+timeout 8s find /etc/systemd/system /usr/local/bin -maxdepth 2 -type f -mtime -7 2>/dev/null | head -n 15 | sed 's/^/  MODIFIED_7D: /' || true
 echo '```'
 """
 
@@ -290,6 +311,11 @@ Write-Output "[SMB Shares Open to Everyone]"
 Get-SmbShareAccess -Name * -EA 0 | Where-Object { $_.AccountName -match 'Everyone' -and $_.Name -notmatch '\$$' } | Select-Object Name, AccountName, AccessRight | Format-Table -AutoSize | Out-String
 Write-Output "[IIS Webshell Indicator Scan (wwwroot *.aspx/*.ashx)]"
 Get-ChildItem 'C:\inetpub\wwwroot' -Include *.aspx,*.ashx -Recurse -EA 0 | Select-String -Pattern 'Process\.Start|cmd\.exe|eval\s*\(\s*Request' -EA 0 | Select-Object -First 15 Path, LineNumber | Format-Table -AutoSize | Out-String
+Write-Output "[CrowdStrike Standalone: Failed RDP/Logon Brute-Force (Event 4625 — 24h) & New Users (Event 4720 — 7d)]"
+$f4625 = (Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625; StartTime=(Get-Date).AddHours(-24)} -MaxEvents 200 -EA 0 | Measure-Object).Count
+Write-Output "Failed Logons (Event 4625, last 24h): $f4625"
+if ($f4625 -ge 30) { Write-Output "IOC_BRUTEFORCE_HIGH: $f4625 failed logon attempts in 24h" }
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4720; StartTime=(Get-Date).AddDays(-7)} -MaxEvents 10 -EA 0 | Select-Object TimeCreated, Message | Format-List | Out-String
 Write-Output '```'
 """
 

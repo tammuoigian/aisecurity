@@ -175,7 +175,11 @@ def detect_attack_paths(live_md: str, semgrep_norm: list, gitleaks: list, trivy_
     kev_cves = [t for t in trivy_items if t.get("is_kev")]
     has_docker_risk = ("Privileged=true" in live_md or "/var/run/docker.sock" in live_md or "NetMode=host" in live_md or any("docker-network-host" in r.get("rule_id", "") for r in semgrep_norm))
     has_weak_auth = bool(re.search(r"PermitRootLogin\s+yes|PasswordAuthentication\s+yes|WDigest.*`1`", live_md, re.I))
-    has_ioc = bool(re.search(r"IOC_SUSPICIOUS_PROC|Unquoted Service Paths[\s\S]{1,120}\.exe|NOPASSWD:\s*ALL", live_md))
+    has_ioc = bool(re.search(r"IOC_SUSPICIOUS_PROC|IOC_DELETED_BIN|IOC_LD_PRELOAD_FOUND|IOC_WEBSHELL_SUSPECT|IOC_CRYPTOMINER|Unquoted Service Paths[\s\S]{1,120}\.exe|NOPASSWD:\s*ALL", live_md))
+    has_cloud_cred = "IOC_CLOUD_CRED_EXPOSED" in live_md
+    has_bruteforce = "IOC_BRUTEFORCE_HIGH" in live_md
+    has_win_eol = bool(re.search(r"Windows Server (2008|2012|2016)\b", live_md, re.I))
+    has_exposed_admin = bool(re.search(r"(0\.0\.0\.0|\*|::):(9000|9200|8080|3000|5601|8888|2375)\b", live_md))
 
     if (crit_sast or kev_cves) and (has_public_web or not live_md):
         ev = []
@@ -214,10 +218,26 @@ def detect_attack_paths(live_md: str, semgrep_norm: list, gitleaks: list, trivy_
 
     if has_ioc:
         paths.append({
+            "severity": "CRITICAL" if any(k in live_md for k in ("IOC_WEBSHELL_SUSPECT", "IOC_LD_PRELOAD_FOUND", "IOC_CRYPTOMINER", "IOC_DELETED_BIN")) else "HIGH",
+            "title": "Dấu hiệu Xâm nhập / Persistence / Cryptominer (CrowdStrike Threat Hunting)",
+            "chain": "Phát hiện Webshell / Deleted-Binary / ld.so.preload / Cryptominer hoặc Unquoted Service Path / sudoers NOPASSWD",
+            "action": "Cách ly kiểm tra ngay các tiến trình & tệp được gắn cờ IOC_* trong Mục 8 (Live Threat Hunting) của báo cáo.",
+        })
+
+    if has_cloud_cred or has_exposed_admin:
+        paths.append({
             "severity": "HIGH",
-            "title": "Dấu hiệu Leo thang đặc quyền / Persistence (MITRE ATT&CK)",
-            "chain": "Phát hiện tiến trình bất thường (/tmp, AppData) hoặc Unquoted Service Path / sudoers NOPASSWD: ALL",
-            "action": "Rà soát ngay danh sách tiến trình & phân quyền sudo/Service trong mục Threat Hunting của báo cáo.",
+            "title": "Lộ thông tin Cloud/K8s hoặc Cổng Quản trị nhạy cảm (Wiz Standalone Exposure)",
+            "chain": "Phát hiện tệp ~/.aws/credentials / ~/.kube/config hoặc cổng quản trị (2375/9000/9200/5601/8888) mở 0.0.0.0",
+            "action": "Khóa quyền chmod 600 các tệp credential Cloud/K8s và chặn cổng quản trị bằng Firewall/VPN.",
+        })
+
+    if has_bruteforce or has_win_eol:
+        paths.append({
+            "severity": "HIGH",
+            "title": "Tấn công Brute-Force hoạt động hoặc Hệ điều hành Windows hết vòng đời (EOL)",
+            "chain": "Phát hiện lưu lượng đăng nhập sai cao (SSH/RDP Event 4625) hoặc Windows Server 2008/2012/2016 đã hết hỗ trợ vá lỗi",
+            "action": "Bật Fail2Ban / chặn IP tấn công trên Firewall, tắt SSH PasswordAuthentication / giới hạn RDP qua VPN và lên kế hoạch nâng cấp OS.",
         })
 
     return paths

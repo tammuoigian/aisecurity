@@ -35,6 +35,8 @@ PROJECTS_FILE = WEB_DIR / "projects.json"
 SECRETS_FILE = WEB_DIR / "project_secrets.json"
 AUTH_FILE = WEB_DIR / "auth.json"
 SCOPE_FILE = WEB_DIR / "scope.json"
+NOTIF_FILE = WEB_DIR / "notifications.json"
+SCHEDULES_FILE = WEB_DIR / "schedules.json"
 JOBS_DIR = WEB_DIR / "jobs"
 for _d in (KEYS_DIR, TARGETS_DIR, JOBS_DIR, REPORTS_ROOT):
     _d.mkdir(parents=True, exist_ok=True)
@@ -172,7 +174,7 @@ def save_jobs_store():
 
 JOBS = load_jobs_store()
 
-def start_job(title: str, steps: list, start_from: int = 0):
+def start_job(title: str, steps: list, start_from: int = 0, report_tag: str = ""):
     jid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
     log_path = JOBS_DIR / f"{jid}.log"
     now_ts = time.time()
@@ -242,13 +244,151 @@ def start_job(title: str, steps: list, start_from: int = 0):
             JOBS[jid]["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             JOBS[jid]["finished_ts"] = time.time()
             save_jobs_store()
+            if rc == 0 and report_tag:
+                notify_scan_complete(title, report_tag)
+            if rc == 0 and report_tag:
+                notify_scan_complete(title, report_tag)
+            if rc == 0 and report_tag:
+                notify_scan_complete(title, report_tag)
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v4.4")
+
+
+def load_notif():
+    if NOTIF_FILE.exists():
+        try: return json.loads(NOTIF_FILE.read_text(encoding="utf-8"))
+        except Exception: pass
+    return {"enabled": False, "bot_token": "", "chat_id": ""}
+
+def send_telegram_msg(text: str, cfg: dict = None) -> tuple:
+    cfg = cfg or load_notif()
+    tok, cid = (cfg.get("bot_token") or "").strip(), (cfg.get("chat_id") or "").strip()
+    if not tok or not cid:
+        return False, "Chưa cấu hình Telegram Bot Token hoặc Chat ID"
+    try:
+        payload = json.dumps({"chat_id": cid, "text": text[:3900], "parse_mode": "HTML", "disable_web_page_preview": True}).encode("utf-8")
+        req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendMessage", data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            return resp.status == 200, "OK"
+    except Exception as ex:
+        return False, str(ex)
+
+def notify_scan_complete(title: str, report_tag: str):
+    cfg = load_notif()
+    if not cfg.get("enabled"):
+        return
+    rep_dir = REPORTS_ROOT / report_tag
+    if not rep_dir.exists():
+        return
+    try:
+        d = report_exporter._gather_report_data(rep_dir)
+        cis = d["cis"]
+        dt = d["delta"]
+        aps = d["attack_paths"]
+        kev = d["kpi"].get("kev_count", 0)
+        crit = d["kpi"].get("sast_critical", 0)
+        sec = d["kpi"].get("secrets_total", 0)
+        should_alert = (
+            (dt.get("has_prev") and dt.get("new_count", 0) > 0)
+            or kev > 0 or crit > 0 or sec > 0 or len(aps) > 0
+            or (cis.get("available") and (cis.get("score") or 100) < 80)
+        )
+        if not should_alert:
+            return
+        cis_s = f"{cis['score']}/100 ({cis['grade']})" if cis.get("available") else "N/A"
+        dt_s = f"+{dt['new_count']} mới / -{dt['fixed_count']} đã vá" if dt.get("has_prev") else "Đợt đầu"
+        msg = (
+            f"<b>[AI Security Audit v5.0] Cảnh báo Kiểm toán</b>\n"
+            f"• Tác vụ: <code>{title}</code>\n"
+            f"• Báo cáo: <code>{report_tag}</code>\n"
+            f"• Điểm CIS: <b>{cis_s}</b> | Wiz Attack Paths: <b>{len(aps)}</b>\n"
+            f"• SAST Critical: <b>{crit}</b> | Secrets: <b>{sec}</b> | CISA KEV: <b>{kev}</b>\n"
+            f"• Biến động (Delta): <b>{dt_s}</b>"
+        )
+        send_telegram_msg(msg, cfg)
+    except Exception:
+        pass
+
+def load_schedules():
+    if SCHEDULES_FILE.exists():
+        try: return json.loads(SCHEDULES_FILE.read_text(encoding="utf-8"))
+        except Exception: pass
+    return []
+
+def save_schedules(items):
+    SCHEDULES_FILE.write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
+
+def _build_scan_steps_for_project(proj: dict, mode: str, audit_model: str = "qwen3-vl:8b", critic_model: str = "deepseek-r1:14b"):
+    pid = proj["id"]
+    tag = f"{datetime.now().strftime('%Y-%m-%d_%H%M')}_{pid}"
+    wsl_src = win_to_wsl(proj["path"])
+    wsl_rep = f"/mnt/f/ERP-Audit-Lab/reports/{tag}"
+    steps = []
+    if proj.get("mode") == "ssh":
+        secs = load_secrets().get(pid, {})
+        cfg_file = JOBS_DIR / f"sync_{pid}_{secrets.token_hex(3)}.json"
+        key_path = secs.get("custom_key_path", str(KEY_PRIV)) if proj.get("ssh_auth") == "custom_key" else str(KEY_PRIV)
+        cfg_data = {
+            "os_type": proj.get("os_type", "linux"), "ssh_host": proj["ssh_host"],
+            "ssh_port": proj.get("ssh_port", 22), "ssh_user": proj["ssh_user"],
+            "ssh_auth": proj.get("ssh_auth", "key"), "key_path": key_path,
+            "ssh_password": secs.get("ssh_password", ""), "remote_paths": proj.get("remote_paths", ""),
+            "local_path": proj["path"],
+        }
+        cfg_file.write_text(json.dumps(cfg_data), encoding="utf-8")
+        steps.append((f"Agentless SSH Sync ({proj['ssh_user']}@{proj['ssh_host']})", [WIN_PY, r"F:\ERP-Audit-Lab\scripts\agentless_collector.py", "--config-json", str(cfg_file)]))
+    bash_sast = (
+        f"mkdir -p '{wsl_rep}' && "
+        f"([ -f '{wsl_src}/live_system_audit.md' ] && cp '{wsl_src}/live_system_audit.md' '{wsl_rep}/00_live_system_audit.md' || true) && "
+        f"echo '[1/3] Gitleaks Secret Scan...' && "
+        f"gitleaks detect --source '{wsl_src}' --no-git --report-format json --report-path '{wsl_rep}/01_gitleaks_secrets.json' --exit-code 0 || true; "
+        f"echo '[2/3] Trivy SCA & OS CVE + SBOM...' && "
+        f"bash /mnt/f/ERP-Audit-Lab/scripts/trivy_fast_stage.sh '{wsl_src}' '{wsl_rep}'; "
+        f"echo '[3/3] Semgrep SAST + Taint + OWASP LLM/MCP...' && "
+        f"semgrep scan --timeout 300 --config /mnt/f/ERP-Audit-Lab/rules --json --output '{wsl_rep}/03_semgrep_sast.json' '{wsl_src}' || true; "
+        f"echo 'SCAN COMPLETE -> F:\\ERP-Audit-Lab\\reports\\{tag}'"
+    )
+    steps.append(("SAST + Secret + SCA + OS CVE", ["wsl", "-u", "root", "bash", "-c", bash_sast]))
+    if mode == "full":
+        steps.append(("AI Deep Audit (14 Playbooks + 7-Q Gate)", [WIN_PY, r"F:\ERP-Audit-Lab\scripts\ai_auditor.py", "--mode", "full", "--repo", proj["path"], "--reports", rf"F:\ERP-Audit-Lab\reports\{tag}", "--audit-model", audit_model, "--critic-model", critic_model]))
+    return tag, steps
+
+def _scheduler_loop():
+    while True:
+        time.sleep(60)
+        try:
+            now = datetime.now()
+            hhmm = now.strftime("%H:%M")
+            today = now.strftime("%Y-%m-%d")
+            wday = now.weekday()  # 0=Mon .. 6=Sun
+            scheds = load_schedules()
+            changed = False
+            projs = {p["id"]: p for p in load_projects()}
+            for sc in scheds:
+                if not sc.get("enabled"):
+                    continue
+                if sc.get("time") != hhmm or sc.get("last_run") == today:
+                    continue
+                if sc.get("freq") == "weekly" and int(sc.get("weekday", 6)) != wday:
+                    continue
+                proj = projs.get(sc.get("project_id"))
+                if proj:
+                    tag, steps = _build_scan_steps_for_project(proj, sc.get("mode", "quick"), sc.get("audit_model", "qwen3-vl:8b"))
+                    start_job(f"[Lịch định kỳ] {proj['name']}", steps, report_tag=tag)
+                    sc["last_run"] = today
+                    changed = True
+            if changed:
+                save_schedules(scheds)
+        except Exception:
+            pass
+
+threading.Thread(target=_scheduler_loop, daemon=True).start()
+
+app = FastAPI(title="AI Security Audit Platform v5.0")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.4</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v5.0</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -258,7 +398,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v4.4</h1>
+<h1>AI Security Audit v5.0</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -267,7 +407,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.4 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v5.0 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -331,7 +471,7 @@ tbody tr:hover{background:rgba(30,41,59,.55)}
 .md a,td a{color:#38bdf8;text-decoration:none} .md a:hover,td a:hover{text-decoration:underline}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v4.4 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div><h1>AI Security Audit v5.0 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px"><span id="gpuPill" class="gpu-pill" title="Đang đọc thông số GPU..."><span class="gpu-dot"></span><span id="gpuText">GPU...</span></span><span id="ollamaBadge" class="badge">Đang kiểm tra Ollama...</span><a href="/logout" style="color:#94a3b8;margin-left:10px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -489,6 +629,62 @@ tbody tr:hover{background:rgba(30,41,59,.55)}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h2 style="margin:0">Lịch sử Tác vụ &amp; Nhật ký trực tiếp</h2><button class="btn btn-danger" onclick="clearFinishedJobs()">Xóa toàn bộ lịch sử đã xong/lỗi</button></div>
       <table><thead><tr><th>Mã tác vụ</th><th>Tên tác vụ</th><th>Trạng thái</th><th style="min-width:140px">Tiến độ / Thời gian</th><th>Bắt đầu</th><th>Thao tác</th></tr></thead><tbody id="jobsTable"></tbody></table>
     </div>
+    <div class="card">
+      <details>
+        <summary style="cursor:pointer;font-size:15px;font-weight:700;color:#38bdf8">Lịch Quét Tự Động (Scheduler) &amp; Cảnh Báo Telegram Delta</summary>
+        <div class="row" style="margin-top:14px">
+          <div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b">
+            <h3 style="margin:0 0 10px;font-size:14px;color:#f8fafc">A. Cấu hình Telegram Delta Alert</h3>
+            <label><input type="checkbox" id="tgEnabled" style="width:auto"> Tự động gửi Telegram khi có lỗi mới / CISA KEV / Attack Path / CIS &lt; 80</label>
+            <div style="margin:8px 0"><label>Telegram Bot Token</label><input id="tgToken" type="password" placeholder="Để trống nếu giữ nguyên token cũ"></div>
+            <div style="margin:8px 0"><label>Telegram Chat ID</label><input id="tgChat" placeholder="VD: -100xxxxxxxxxx hoặc 123456789"></div>
+            <button class="btn btn-green" onclick="saveNotif()">Lưu Telegram</button>
+            <button class="btn btn-primary" onclick="testNotif()">Test gửi Telegram</button>
+          </div>
+          <div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b">
+            <h3 style="margin:0 0 10px;font-size:14px;color:#f8fafc">B. Thêm Lịch Quét Định Kỳ</h3>
+            <div class="row">
+              <div><label>Dự án</label><select id="scProj"></select></div>
+              <div><label>Chế độ</label><select id="scMode"><option value="quick">Quét nhanh (SAST+CVE+OS)</option><option value="full">Kiểm toán AI sâu</option></select></div>
+            </div>
+            <div class="row">
+              <div><label>Chu kỳ</label><select id="scFreq"><option value="weekly">Hằng tuần (Chủ nhật)</option><option value="daily">Hằng ngày</option></select></div>
+              <div><label>Giờ chạy (HH:MM)</label><input id="scTime" value="02:00"></div>
+            </div>
+            <button class="btn btn-ai" onclick="addSchedule()">+ Thêm lịch quét</button>
+            <div id="scList" style="margin-top:10px;font-size:12px"></div>
+          </div>
+        </div>
+      </details>
+    </div>
+    <div class="card">
+      <details>
+        <summary style="cursor:pointer;font-size:15px;font-weight:700;color:#38bdf8">Lịch Quét Tự Động (Scheduler) &amp; Cảnh Báo Telegram Delta</summary>
+        <div class="row" style="margin-top:14px">
+          <div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b">
+            <h3 style="margin:0 0 10px;font-size:14px;color:#f8fafc">A. Cấu hình Telegram Delta Alert</h3>
+            <label><input type="checkbox" id="tgEnabled" style="width:auto"> Tự động gửi Telegram khi có lỗi mới / CISA KEV / Attack Path / CIS &lt; 80</label>
+            <div style="margin:8px 0"><label>Telegram Bot Token</label><input id="tgToken" type="password" placeholder="Để trống nếu giữ nguyên token cũ"></div>
+            <div style="margin:8px 0"><label>Telegram Chat ID</label><input id="tgChat" placeholder="VD: -100xxxxxxxxxx hoặc 123456789"></div>
+            <button class="btn btn-green" onclick="saveNotif()">Lưu Telegram</button>
+            <button class="btn btn-primary" onclick="testNotif()">Test gửi Telegram</button>
+          </div>
+          <div style="background:#0f172a;padding:12px;border-radius:8px;border:1px solid #1e293b">
+            <h3 style="margin:0 0 10px;font-size:14px;color:#f8fafc">B. Thêm Lịch Quét Định Kỳ</h3>
+            <div class="row">
+              <div><label>Dự án</label><select id="scProj"></select></div>
+              <div><label>Chế độ</label><select id="scMode"><option value="quick">Quét nhanh (SAST+CVE+OS)</option><option value="full">Kiểm toán AI sâu</option></select></div>
+            </div>
+            <div class="row">
+              <div><label>Chu kỳ</label><select id="scFreq"><option value="weekly">Hằng tuần (Chủ nhật)</option><option value="daily">Hằng ngày</option></select></div>
+              <div><label>Giờ chạy (HH:MM)</label><input id="scTime" value="02:00"></div>
+            </div>
+            <button class="btn btn-ai" onclick="addSchedule()">+ Thêm lịch quét</button>
+            <div id="scList" style="margin-top:10px;font-size:12px"></div>
+          </div>
+        </div>
+      </details>
+    </div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h2 style="margin:0">Nhật ký chạy trực tiếp (Live Log)</h2><button class="btn btn-gray" onclick="scrollLogBottom()">Xuống cuối log</button></div><div id="liveProgWrap" class="hidden" style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:10px 14px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px"><span id="liveProgStep" style="color:#38bdf8;font-weight:600">Đang chạy...</span><span id="liveProgMeta" style="color:#fde047;font-weight:600">0% · 00:00</span></div><div class="pbar"><div id="liveProgFill" class="pbar-fill" style="width:0%"></div></div></div><pre id="jobLog">Chọn một tác vụ ở bảng trên để xem nhật ký chạy trực tiếp...</pre></div>
   </div>
 
@@ -513,6 +709,8 @@ tbody tr:hover{background:rgba(30,41,59,.55)}
       </div>
       <div style="margin:6px 0 8px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kNuclei" checked style="width:auto"> Bật <b>ProjectDiscovery Nuclei (Safe Profile)</b> — Quét CVE Web, Misconfiguration, Exposed Panels (-severity critical,high,medium -rl 10)</label></div>
       <div style="margin:0 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kNmap" checked style="width:auto"> Bật <b>Nmap Safe Service &amp; TLS Cipher Audit</b> — Soi phiên bản dịch vụ &amp; giao thức TLS 1.0/1.1/Cipher yếu (Qualys/Nessus-grade)</label></div>
+      <div style="margin:0 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kSubfinder" style="width:auto"> Bật <b>ProjectDiscovery Subfinder</b> — Tự động dò toàn bộ Subdomain bị lãng quên (<code>dev.</code>, <code>uat.</code>, <code>old.</code>) &amp; kiểm tra live bằng <code>httpx</code></label></div>
+      <div style="margin:0 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kSubfinder" style="width:auto"> Bật <b>ProjectDiscovery Subfinder</b> — Tự động dò toàn bộ Subdomain bị lãng quên (<code>dev.</code>, <code>uat.</code>, <code>old.</code>) &amp; kiểm tra live bằng <code>httpx</code></label></div>
       <button class="btn btn-ai" onclick="runKatanaScan()">Chạy Khám phá Bề mặt Web &amp; Nuclei</button>
     </div>
   </div>
@@ -600,7 +798,7 @@ function showTab(name, btn){
   document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
   if(name==='projects') loadProjects();
-  if(name==='jobs') loadJobs();
+  if(name==='jobs'){ loadJobs(); loadNotifAndScheds(); }
   if(name==='reports') loadReportFolders();
   if(name==='sshkey') loadCollectorInfo();
 }
@@ -937,6 +1135,64 @@ async function clearFinishedJobs(){
   await fetch('/api/jobs', {method:'DELETE'}); loadJobs();
   document.getElementById('jobLog').textContent = 'Đã dọn sạch lịch sử tác vụ.';
 }
+async function loadNotifAndScheds(){
+  try {
+    const nr = await fetch('/api/notifications'); if(nr.ok){ const nd = await nr.json(); document.getElementById('tgEnabled').checked = !!nd.enabled; document.getElementById('tgChat').value = nd.chat_id || ''; }
+    const ps = document.getElementById('scProj'); if(ps && cachedProjects.length){ ps.innerHTML = cachedProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join(''); }
+    const sr = await fetch('/api/schedules'); if(sr.ok){
+      const list = await sr.json();
+      document.getElementById('scList').innerHTML = list.length ? list.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1e293b"><span><b>${s.project_name||s.project_id}</b> · ${s.freq==='daily'?'Hằng ngày':'Chủ nhật'} ${s.time} (${s.mode})</span><button class="btn btn-danger" onclick="delSchedule('${s.id}')">Xóa</button></div>`).join('') : '<span style="color:#94a3b8">Chưa có lịch quét tự động nào.</span>';
+    }
+  } catch(e){}
+}
+async function saveNotif(){
+  const payload = {enabled: document.getElementById('tgEnabled').checked, bot_token: document.getElementById('tgToken').value.trim(), chat_id: document.getElementById('tgChat').value.trim()};
+  const r = await fetch('/api/notifications', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  if(r.ok){ document.getElementById('tgToken').value=''; alert('Đã lưu cấu hình Telegram!'); }
+}
+async function testNotif(){
+  const r = await fetch('/api/notifications/test', {method:'POST'}); const d = await r.json();
+  alert(d.ok ? 'Gửi tin nhắn test Telegram thành công!' : ('Lỗi gửi Telegram: ' + d.error));
+}
+async function addSchedule(){
+  const pid = document.getElementById('scProj').value; if(!pid) return alert('Chưa chọn dự án!');
+  const p = cachedProjects.find(x=>x.id===pid);
+  const payload = {project_id: pid, project_name: p?p.name:pid, mode: document.getElementById('scMode').value, freq: document.getElementById('scFreq').value, time: document.getElementById('scTime').value.trim()||'02:00', weekday: 6, enabled: true};
+  await fetch('/api/schedules', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  loadNotifAndScheds();
+}
+async function delSchedule(sid){
+  await fetch('/api/schedules/'+sid, {method:'DELETE'}); loadNotifAndScheds();
+}
+async function loadNotifAndScheds(){
+  try {
+    const nr = await fetch('/api/notifications'); if(nr.ok){ const nd = await nr.json(); document.getElementById('tgEnabled').checked = !!nd.enabled; document.getElementById('tgChat').value = nd.chat_id || ''; }
+    const ps = document.getElementById('scProj'); if(ps && cachedProjects.length){ ps.innerHTML = cachedProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join(''); }
+    const sr = await fetch('/api/schedules'); if(sr.ok){
+      const list = await sr.json();
+      document.getElementById('scList').innerHTML = list.length ? list.map(s=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1e293b"><span><b>${s.project_name||s.project_id}</b> · ${s.freq==='daily'?'Hằng ngày':'Chủ nhật'} ${s.time} (${s.mode})</span><button class="btn btn-danger" onclick="delSchedule('${s.id}')">Xóa</button></div>`).join('') : '<span style="color:#94a3b8">Chưa có lịch quét tự động nào.</span>';
+    }
+  } catch(e){}
+}
+async function saveNotif(){
+  const payload = {enabled: document.getElementById('tgEnabled').checked, bot_token: document.getElementById('tgToken').value.trim(), chat_id: document.getElementById('tgChat').value.trim()};
+  const r = await fetch('/api/notifications', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  if(r.ok){ document.getElementById('tgToken').value=''; alert('Đã lưu cấu hình Telegram!'); }
+}
+async function testNotif(){
+  const r = await fetch('/api/notifications/test', {method:'POST'}); const d = await r.json();
+  alert(d.ok ? 'Gửi tin nhắn test Telegram thành công!' : ('Lỗi gửi Telegram: ' + d.error));
+}
+async function addSchedule(){
+  const pid = document.getElementById('scProj').value; if(!pid) return alert('Chưa chọn dự án!');
+  const p = cachedProjects.find(x=>x.id===pid);
+  const payload = {project_id: pid, project_name: p?p.name:pid, mode: document.getElementById('scMode').value, freq: document.getElementById('scFreq').value, time: document.getElementById('scTime').value.trim()||'02:00', weekday: 6, enabled: true};
+  await fetch('/api/schedules', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  loadNotifAndScheds();
+}
+async function delSchedule(sid){
+  await fetch('/api/schedules/'+sid, {method:'DELETE'}); loadNotifAndScheds();
+}
 async function resumeJob(jid){
   const r = await fetch('/api/jobs/'+jid+'/resume', {method:'POST'});
   const d = await r.json();
@@ -976,8 +1232,10 @@ async function runKatanaScan(){
   const with_ai = document.getElementById('kAi').value === 'yes';
   const with_nuclei = document.getElementById('kNuclei') ? document.getElementById('kNuclei').checked : true;
   const with_nmap = document.getElementById('kNmap') ? document.getElementById('kNmap').checked : true;
+  const with_subfinder = document.getElementById('kSubfinder') ? document.getElementById('kSubfinder').checked : false;
+  const with_subfinder = document.getElementById('kSubfinder') ? document.getElementById('kSubfinder').checked : false;
   if(!url.startsWith('http')) return alert('Vui lòng nhập URL hợp lệ bắt đầu bằng http:// hoặc https://');
-  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai,with_nuclei,with_nmap, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
+  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai,with_nuclei,with_nmap,with_subfinder,with_subfinder, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
   const d = await r.json();
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
@@ -1073,7 +1331,7 @@ def api_rotate_token(request: Request):
 def download_win_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
-    script = f"""# AI Security Audit v4.4 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
+    script = f"""# AI Security Audit v5.0 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
 $ErrorActionPreference = 'SilentlyContinue'
 $hostName = $env:COMPUTERNAME
 $work = Join-Path $env:TEMP ("ace_audit_" + $hostName + "_" + (Get-Random))
@@ -1157,9 +1415,9 @@ if (Test-Path 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config') 
 }}
 $zip = "$work.zip"
 Compress-Archive -Path "$work\\*" -DestinationPath $zip -Force
-Write-Host "[AI Security Audit v4.4] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
+Write-Host "[AI Security Audit v5.0] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
 $resp = Invoke-RestMethod -Uri "{server_base}/api/collector/upload?token={token}&host=$hostName&os=windows" -Method Post -InFile $zip -ContentType "application/zip" -TimeoutSec 120
-Write-Host ("[AI Security Audit v4.4] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
+Write-Host ("[AI Security Audit v5.0] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
 Remove-Item $work, $zip -Recurse -Force -ErrorAction SilentlyContinue
 """
     hdrs = {"Content-Disposition": "attachment; filename=win_collector.ps1"} if dl else {}
@@ -1231,7 +1489,7 @@ done
 
 TGZ="${{WORK}}.tar.gz"
 tar -czf "$TGZ" -C "$WORK" .
-echo "[AI Security Audit v4.4] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
+echo "[AI Security Audit v5.0] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
 curl -fsS -X POST --data-binary @"$TGZ" -H "Content-Type: application/gzip" "{server_base}/api/collector/upload?token={token}&host=${{HOST}}&os=linux"
 echo ""
 rm -rf "$WORK" "$TGZ"
@@ -1442,9 +1700,9 @@ async def api_scan(request: Request):
             "AI 3-Agent Deep Audit (Ollama Local)",
             [WIN_PY, r"F:\ERP-Audit-Lab\scripts\ai_auditor.py", "--mode", "full", "--repo", proj["path"], "--reports", rf"F:\ERP-Audit-Lab\reports\{tag}", "--audit-model", body.get("audit_model", "qwen3-vl:8b"), "--critic-model", body.get("critic_model", "deepseek-r1:14b")]
         ))
-        jid = start_job(f"Full AI Audit: {proj['name']}", steps)
+        jid = start_job(f"Full AI Audit: {proj['name']}", steps, report_tag=tag)
     else:
-        jid = start_job(f"Quick Scan: {proj['name']}", steps)
+        jid = start_job(f"Quick Scan: {proj['name']}", steps, report_tag=tag)
     return {"job_id": jid, "report_tag": tag}
 
 @app.post("/api/patch-diff")
@@ -1586,6 +1844,98 @@ def api_report_content(folder: str, filename: str, request: Request):
     return {"html": f"<pre>{raw[:30000]}</pre>"}
 
 
+@app.get("/api/notifications")
+def api_get_notif(request: Request):
+    require_auth(request)
+    c = load_notif()
+    return {"enabled": bool(c.get("enabled")), "chat_id": c.get("chat_id", ""), "has_token": bool(c.get("bot_token"))}
+
+@app.post("/api/notifications")
+async def api_set_notif(request: Request):
+    require_auth(request)
+    body = await request.json()
+    cur = load_notif()
+    cur["enabled"] = bool(body.get("enabled", False))
+    cur["chat_id"] = (body.get("chat_id") or "").strip()
+    if (body.get("bot_token") or "").strip():
+        cur["bot_token"] = body["bot_token"].strip()
+    NOTIF_FILE.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+    return {"ok": True}
+
+@app.post("/api/notifications/test")
+def api_test_notif(request: Request):
+    require_auth(request)
+    ok, err = send_telegram_msg("<b>[AI Security Audit v5.0]</b> Kết nối cảnh báo Telegram Delta Alert hoạt động bình thường!")
+    return {"ok": ok, "error": err}
+
+@app.get("/api/schedules")
+def api_get_schedules(request: Request):
+    require_auth(request)
+    return load_schedules()
+
+@app.post("/api/schedules")
+async def api_add_schedule(request: Request):
+    require_auth(request)
+    body = await request.json()
+    items = load_schedules()
+    body["id"] = secrets.token_hex(4)
+    body["last_run"] = ""
+    items.append(body)
+    save_schedules(items)
+    return {"ok": True, "id": body["id"]}
+
+@app.delete("/api/schedules/{sid}")
+def api_del_schedule(sid: str, request: Request):
+    require_auth(request)
+    save_schedules([x for x in load_schedules() if x.get("id") != sid])
+    return {"ok": True}
+
+@app.get("/api/notifications")
+def api_get_notif(request: Request):
+    require_auth(request)
+    c = load_notif()
+    return {"enabled": bool(c.get("enabled")), "chat_id": c.get("chat_id", ""), "has_token": bool(c.get("bot_token"))}
+
+@app.post("/api/notifications")
+async def api_set_notif(request: Request):
+    require_auth(request)
+    body = await request.json()
+    cur = load_notif()
+    cur["enabled"] = bool(body.get("enabled", False))
+    cur["chat_id"] = (body.get("chat_id") or "").strip()
+    if (body.get("bot_token") or "").strip():
+        cur["bot_token"] = body["bot_token"].strip()
+    NOTIF_FILE.write_text(json.dumps(cur, indent=2), encoding="utf-8")
+    return {"ok": True}
+
+@app.post("/api/notifications/test")
+def api_test_notif(request: Request):
+    require_auth(request)
+    ok, err = send_telegram_msg("<b>[AI Security Audit v5.0]</b> Kết nối cảnh báo Telegram Delta Alert hoạt động bình thường!")
+    return {"ok": ok, "error": err}
+
+@app.get("/api/schedules")
+def api_get_schedules(request: Request):
+    require_auth(request)
+    return load_schedules()
+
+@app.post("/api/schedules")
+async def api_add_schedule(request: Request):
+    require_auth(request)
+    body = await request.json()
+    items = load_schedules()
+    body["id"] = secrets.token_hex(4)
+    body["last_run"] = ""
+    items.append(body)
+    save_schedules(items)
+    return {"ok": True, "id": body["id"]}
+
+@app.delete("/api/schedules/{sid}")
+def api_del_schedule(sid: str, request: Request):
+    require_auth(request)
+    save_schedules([x for x in load_schedules() if x.get("id") != sid])
+    return {"ok": True}
+
 @app.get("/api/scope")
 def api_get_scope(request: Request):
     require_auth(request)
@@ -1614,6 +1964,8 @@ async def api_katana_scan(request: Request):
     with_ai = bool(body.get("with_ai", False))
     with_nuclei = bool(body.get("with_nuclei", True))
     with_nmap = bool(body.get("with_nmap", True))
+    with_subfinder = bool(body.get("with_subfinder", False))
+    with_subfinder = bool(body.get("with_subfinder", False))
     host_only = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0].lower()
     if SCOPE_FILE.exists():
         try:
@@ -1638,17 +1990,31 @@ async def api_katana_scan(request: Request):
         f"nmap -Pn -sV --top-ports 25 --script=ssl-enum-ciphers --host-timeout 60s '{host_only}' -oN '{wsl_rep}/nmap_tls.txt' >/dev/null 2>&1 || true; "
         f"else echo 'Nmap chưa cài đặt' > '{wsl_rep}/nmap_tls.txt'; fi; "
     ) if with_nmap else ""
+    root_dom = ".".join(host_only.split(".")[-3:]) if host_only.endswith((".com.vn",".net.vn",".org.vn",".edu.vn",".gov.vn")) else ".".join(host_only.split(".")[-2:])
+    sub_part = (
+        f"echo '[5/5] Running Subfinder + httpx Subdomain Discovery ({root_dom})...' && "
+        f"if command -v subfinder >/dev/null 2>&1; then "
+        f"timeout 45s subfinder -d '{root_dom}' -silent 2>/dev/null | head -n 60 | httpx -silent -status-code -title -tech-detect -o '{wsl_rep}/subdomains_live.txt' 2>/dev/null || true; "
+        f"else echo 'Subfinder chưa cài đặt' > '{wsl_rep}/subdomains_live.txt'; fi; "
+    ) if with_subfinder else ""
+    root_dom = ".".join(host_only.split(".")[-3:]) if host_only.endswith((".com.vn",".net.vn",".org.vn",".edu.vn",".gov.vn")) else ".".join(host_only.split(".")[-2:])
+    sub_part = (
+        f"echo '[5/5] Running Subfinder + httpx Subdomain Discovery ({root_dom})...' && "
+        f"if command -v subfinder >/dev/null 2>&1; then "
+        f"timeout 45s subfinder -d '{root_dom}' -silent 2>/dev/null | head -n 60 | httpx -silent -status-code -title -tech-detect -o '{wsl_rep}/subdomains_live.txt' 2>/dev/null || true; "
+        f"else echo 'Subfinder chưa cài đặt' > '{wsl_rep}/subdomains_live.txt'; fi; "
+    ) if with_subfinder else ""
     bash_cmd = (
         f"mkdir -p '{wsl_rep}' && "
         f"echo '[1/3] Running httpx fingerprint & TLS/Header probe...' && "
         f"echo '{url}' | httpx -title -status-code -tech-detect -server -tls-grab -silent > '{wsl_rep}/httpx.txt' 2>&1 || true; "
         f"echo '[2/3] Running Katana safe crawl (depth={depth}, rate-limit=10/s)...' && "
         f"katana -u '{url}' -d {depth} -c 3 -rl 10 -jc -kf all -silent -o '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; "
-        f"{nuc_part}{nmap_part}"
+        f"{nuc_part}{nmap_part}{sub_part}"
         f"{{ echo '# Báo Cáo Khám Phá Bề Mặt Web, Nuclei & Nmap TLS ({url})'; echo ''; echo '## 0. High-Value Targets — Endpoint Nhạy Cảm Ưu Tiên (BugHunter Surface Ranking)'; echo '```text'; (grep -iE '(graphql|swagger|api-docs|openapi|admin|login|auth|token|oauth|\.env|\.git|actuator|phpinfo|wp-admin|upload|mcp|debug|metrics)' '{wsl_rep}/katana_urls.txt' 2>/dev/null | sort -u | head -n 40 || true); echo '```'; "
         f"echo '## 1. HTTPX Fingerprint (Tech Stack / Server / TLS / Status)'; echo '```text'; cat '{wsl_rep}/httpx.txt'; echo '```'; "
         f"echo '## 2. Nuclei Safe Vulnerability Scan (Critical / High / Medium)'; echo '```text'; ([ -s '{wsl_rep}/nuclei.txt' ] && cat '{wsl_rep}/nuclei.txt' || echo 'Không phát hiện lỗ hổng Nuclei (Safe Profile).'); echo '```'; "
-        f"echo '## 3. Nmap Service Version & TLS Cipher Audit (Qualys/Nessus-grade)'; echo '```text'; ([ -s '{wsl_rep}/nmap_tls.txt' ] && head -n 120 '{wsl_rep}/nmap_tls.txt' || echo 'Bỏ qua Nmap.'); echo '```'; echo '## 4. Discovered Endpoints & JS Routes (Katana — top 200)'; echo '```text'; head -n 200 '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; echo '```'; "
+        f"echo '## 3. Nmap Service Version & TLS Cipher Audit (Qualys/Nessus-grade)'; echo '```text'; ([ -s '{wsl_rep}/nmap_tls.txt' ] && head -n 120 '{wsl_rep}/nmap_tls.txt' || echo 'Bỏ qua Nmap.'); echo '```'; echo '## 4. Subdomain Discovery Live Hosts (Subfinder + httpx)'; echo '```text'; ([ -s '{wsl_rep}/subdomains_live.txt' ] && cat '{wsl_rep}/subdomains_live.txt' || echo 'Chưa bật Subfinder hoặc không tìm thấy subdomain khác.'); echo '```'; echo '## 5. Discovered Endpoints & JS Routes (Katana — top 200)'; echo '```text'; head -n 200 '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; echo '```'; "
         f"}} > '{wsl_rep}/07_web_surface_katana.md'; "
         f"echo \"DISCOVERED_URLS=$(wc -l < '{wsl_rep}/katana_urls.txt' 2>/dev/null || echo 0)\""
     )
@@ -1690,7 +2056,7 @@ def api_export_report(folder: str, fmt: str, request: Request):
     if fmt == "sbom":
         sbom = d / "08_sbom_cyclonedx.json"
         if not sbom.exists():
-            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v4.4 trở lên)")
+            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v5.0 trở lên)")
         return FileResponse(str(sbom), filename=f"SBOM_CycloneDX_{safe_name}.json", media_type="application/json")
     raise HTTPException(400, "Format must be pdf, excel, or sbom")
 
