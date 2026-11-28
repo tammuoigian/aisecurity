@@ -1164,7 +1164,7 @@ mkdir -p "$WORK/configs"
   echo '```text'
   awk -F: '$3 == 0 {{print "UID0:", $1}}' /etc/passwd
   grep -rn "NOPASSWD" /etc/sudoers /etc/sudoers.d/ 2>/dev/null | head -n 15 || true
-  find /usr/local /opt /tmp /var /home -perm -4000 -type f 2>/dev/null | head -n 15 || true
+  timeout 8s find /usr/local /opt /tmp /home -maxdepth 4 -perm -4000 -type f 2>/dev/null | head -n 15 || true
   echo '```'
   echo "## 5. Docker Security Audit"
   echo '```text'

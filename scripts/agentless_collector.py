@@ -26,7 +26,8 @@ EXCLUDE_ARGS = (
     "--exclude='*.jpg' --exclude='*.jpeg' --exclude='*.png' --exclude='*.gif' --exclude='*.webp' "
     "--exclude='*.mp4' --exclude='*.mov' --exclude='*.avi' --exclude='*.zip' --exclude='*.tar.gz' "
     "--exclude='*.rar' --exclude='*.7z' --exclude='*.bak' --exclude='*.sql' --exclude='*.log' "
-    "--exclude='*.pdf' --exclude='*.exe' --exclude='*.dll' --exclude='*.bin'"
+    "--exclude='*.pdf' --exclude='*.exe' --exclude='*.dll' --exclude='*.bin' "
+    "--exclude='*.key' --exclude='*.pem'"
 )
 
 LINUX_SNAPSHOT_CMD = r"""
@@ -47,9 +48,9 @@ echo "| **Hệ điều hành** | $OS_VER |"
 echo "| **Kernel** | \`$KERNEL\` |"
 echo "| **Trạng thái Reboot** | **$REBOOT** |"
 echo ""
-UPG=$(apt list --upgradable 2>/dev/null | grep -v '^Listing' | head -n 40 || true)
+UPG=$(timeout 10s apt list --upgradable 2>/dev/null | grep -v '^Listing' | head -n 40 || true)
 if [ -n "$UPG" ]; then
-  CNT=$(apt list --upgradable 2>/dev/null | grep -v '^Listing' | wc -l)
+  CNT=$(timeout 10s apt list --upgradable 2>/dev/null | grep -v '^Listing' | wc -l || echo 0)
   echo "### Danh sách gói chờ cập nhật (Hiển thị tối đa 40 / Tổng $CNT gói)"
   echo ""
   echo "| Gói phần mềm | Phiên bản mới | Phiên bản hiện tại | Nhánh |"
@@ -117,7 +118,7 @@ grep -rn "NOPASSWD" /etc/sudoers /etc/sudoers.d/ 2>/dev/null | head -n 20 || ech
 echo "[Suspicious Cron /tmp or /dev/shm]"
 grep -rnE "(/tmp/|/dev/shm/|curl |wget |base64 )" /etc/crontab /etc/cron.d/ /var/spool/cron/crontabs/ 2>/dev/null | head -n 20 || echo "  None"
 echo "[Non-standard SUID binaries (top 20)]"
-find /usr/local /opt /tmp /var /home -perm -4000 -type f 2>/dev/null | head -n 20 || true
+timeout 8s find /usr/local /opt /tmp /home -maxdepth 4 -perm -4000 -type f 2>/dev/null | head -n 20 || true
 echo '```'
 
 echo ""
@@ -128,7 +129,7 @@ if command -v docker >/dev/null 2>&1; then
   docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
   echo ""
   echo "--- Docker Risk Inspection (Wiz Deep Capabilities / Seccomp / Sensitive ENV Names) ---"
-  for cid in $(docker ps -q 2>/dev/null); do
+  for cid in $(docker ps -q 2>/dev/null | head -n 25); do
     docker inspect "$cid" --format '{{.Name}} | Privileged={{.HostConfig.Privileged}} | NetMode={{.HostConfig.NetworkMode}} | PidMode={{.HostConfig.PidMode}} | ReadonlyRoot={{.HostConfig.ReadonlyRootfs}} | CapAdd={{.HostConfig.CapAdd}} | User={{.Config.User}} | Mounts={{range .Mounts}}{{.Source}}:{{.Destination}},{{end}}' 2>/dev/null || true
     ENV_HITS=$(docker inspect "$cid" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -iE '(PASS|SECRET|TOKEN|API_?KEY|CONN|PRIVATE)' | cut -d= -f1 | tr '\n' ',' || true)
     [ -n "$ENV_HITS" ] && echo "  [Wiz-ENV-Risk] Sensitive ENV keys in container (values masked): ${ENV_HITS%,}"
@@ -142,7 +143,7 @@ echo ""
 echo "## 7. Kiểm Toán Chứng Chỉ SSL/TLS (Qualys / Tenable)"
 echo ""
 SSL_FOUND=0
-for cert in $(find /etc/letsencrypt/live /etc/nginx /etc/ssl/private -maxdepth 3 -type f \( -name "*.crt" -o -name "fullchain.pem" \) 2>/dev/null | head -n 15); do
+for cert in $(timeout 8s find /etc/letsencrypt/live /etc/nginx /etc/ssl/private -maxdepth 3 -type f \( -name "*.crt" -o -name "fullchain.pem" \) 2>/dev/null | head -n 15); do
   END=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | cut -d= -f2 || true)
   if [ -n "$END" ]; then
     SSL_FOUND=1
@@ -181,8 +182,8 @@ echo ""
 echo "[CrowdStrike Rootkit Check: /etc/ld.so.preload]"
 [ -s /etc/ld.so.preload ] && (echo "IOC_LD_PRELOAD_FOUND:"; cat /etc/ld.so.preload) || echo "  Clean (empty/not present)"
 echo ""
-echo "[Webshell Indicator Scan (/var/www — eval(base64 / system($_ / passthru)]"
-grep -rnE "(eval\s*\(\s*base64_decode|system\s*\(\s*\\\$_|shell_exec\s*\(\s*\\\$_|passthru\s*\(\s*\\\$_)" /var/www 2>/dev/null | head -n 15 | sed 's/^/IOC_WEBSHELL_SUSPECT: /' || echo "  None"
+echo "[Webshell Indicator Scan (/var/www — *.php/*.phtml, fast bounded)]"
+timeout 10s grep -rnE --include='*.php' --include='*.phtml' --exclude-dir=node_modules --exclude-dir=uploads --exclude-dir=cache --exclude-dir=vendor --exclude-dir=.git "(eval\s*\(\s*base64_decode|system\s*\(\s*\\\$_|shell_exec\s*\(\s*\\\$_|passthru\s*\(\s*\\\$_)" /var/www 2>/dev/null | head -n 15 | sed 's/^/IOC_WEBSHELL_SUSPECT: /' || echo "  None"
 echo '```'
 """
 
@@ -372,7 +373,7 @@ def collect_linux(cli, target_dir: Path, remote_paths: str, sudo_pass: str):
         print("  [INFO] Root/sudo read-only SSH mode", flush=True)
 
     print("  [1/3] Collecting Live System, CIS Hardening, MITRE Persistence, SSL/TLS & Threat Hunting Snapshot...", flush=True)
-    snap_out, _ = run_remote(cli, LINUX_SNAPSHOT_CMD, use_sudo=use_sudo, sudo_pass=sudo_pass, timeout=90)
+    snap_out, _ = run_remote(cli, LINUX_SNAPSHOT_CMD, use_sudo=use_sudo, sudo_pass=sudo_pass, timeout=150)
     (target_dir / "live_system_audit.md").write_bytes(snap_out)
 
     # Qualys/Nessus-grade OS Package DB pull (/var/lib/dpkg/status + /etc/os-release) for Trivy rootfs OS CVE scan
