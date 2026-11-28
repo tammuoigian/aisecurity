@@ -15,7 +15,10 @@ import urllib.parse
 import urllib.request
 from typing import Optional
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.mcpserver import MCPServer as FastMCP
+except ImportError:
+    from mcp.server.fastmcp import FastMCP
 
 AISEC_URL = os.environ.get("AISEC_URL", "http://127.0.0.1:2810").rstrip("/")
 AISEC_API_KEY = os.environ.get("AISEC_API_KEY", "").strip()
