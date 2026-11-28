@@ -172,7 +172,8 @@ def load_semgrep_summary(semgrep_json: Path) -> str:
         out.append(f"- [{sev}] `{cid}` @ `{path}:{line}` — {msg} | Code: `{code}`")
     return "\n".join(out)
 
-def load_code_snippets(repo_dir: Path, exts: tuple, keyword_re: str, max_files: int = 6, max_chars_per_file: int = 2400) -> str:
+def load_code_snippets(repo_dir: Path, exts: tuple, keyword_re: str, max_files: int = 6, max_chars_per_file: int = 2800) -> str:
+    """v4.1 Sink-Centered Context Window: extracts +/-22 numbered lines around exact keyword matches instead of truncating from line 1."""
     pat = re.compile(keyword_re, re.IGNORECASE)
     chunks = []
     for fp in safe_iter_files(repo_dir, exts):
@@ -180,20 +181,69 @@ def load_code_snippets(repo_dir: Path, exts: tuple, keyword_re: str, max_files: 
             txt = fp.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        if pat.search(txt):
-            rel = fp.relative_to(repo_dir).as_posix()
-            chunks.append(f"### FILE: {rel}\n```\n{redact(txt[:max_chars_per_file])}\n```")
-            if len(chunks) >= max_files:
+        if not pat.search(txt):
+            continue
+        lines_all = txt.splitlines()
+        match_lines = [i for i, ln in enumerate(lines_all) if pat.search(ln)]
+        if not match_lines:
+            continue
+        # Merge overlapping +/-22 line windows around up to 3 distinct hotspots per file
+        windows = []
+        for ml in match_lines:
+            s, e = max(0, ml - 22), min(len(lines_all), ml + 23)
+            if windows and s <= windows[-1][1]:
+                windows[-1] = (windows[-1][0], max(windows[-1][1], e))
+            else:
+                windows.append((s, e))
+            if len(windows) >= 3:
                 break
+        excerpt_parts = []
+        for s, e in windows:
+            block = "\n".join(f"L{idx+1}: {lines_all[idx]}" for idx in range(s, e))
+            excerpt_parts.append(block)
+        combined = redact("\n... [skipped] ...\n".join(excerpt_parts))[:max_chars_per_file]
+        rel = fp.relative_to(repo_dir).as_posix()
+        chunks.append(f"### FILE: {rel} (Sink-Centered Context)\n```\n{combined}\n```")
+        if len(chunks) >= max_files:
+            break
     return "\n\n".join(chunks)
 
-def run_full_audit(repo_dir: Path, report_dir: Path):
-    print("[AI-Auditor v4.0] [1/3] Building Multi-Stack Attack Surface & Zero-Day Auth Matrix...", flush=True)
-    collect_attack_surface(repo_dir, report_dir / "04_attack_surface_map.md")
-    auth_matrix = build_auth_matrix_zeroday(repo_dir, report_dir / "04b_auth_matrix_zeroday.md")
-    semgrep_sum = load_semgrep_summary(report_dir / "03_semgrep_sast.json")
+def load_cross_layer_context(report_dir: Path) -> str:
+    """v4.1 Cross-Layer Evidence Synthesis: combines Auth Matrix HIGH/MEDIUM routes, Trivy CRITICAL/KEV CVEs, and Live CIS/IOC signals."""
+    parts = []
+    am = report_dir / "04b_auth_matrix_zeroday.md"
+    if am.exists():
+        hi_lines = [ln for ln in am.read_text("utf-8", "ignore").splitlines() if "HIGH (" in ln or "MEDIUM (" in ln][:25]
+        if hi_lines:
+            parts.append("### Auth Matrix — Route có nguy cơ thiếu Auth / IDOR:\n" + "\n".join(hi_lines))
+    tr_fp = report_dir / "02_trivy_sca.json"
+    if tr_fp.exists():
+        try:
+            tr = json.loads(tr_fp.read_text("utf-8", "ignore"))
+            cves = []
+            for res in tr.get("Results", []) or []:
+                for v in res.get("Vulnerabilities", []) or []:
+                    if str(v.get("Severity", "")).upper() in ("CRITICAL", "HIGH"):
+                        cves.append(f"- [{v.get('Severity')}] `{v.get('VulnerabilityID')}` pkg=`{v.get('PkgName')}` ({v.get('InstalledVersion')} -> {v.get('FixedVersion','N/A')}) @ {res.get('Target','')}")
+            if cves:
+                parts.append(f"### Trivy OS/App CVE (Critical/High — top 20/{len(cves)}):\n" + "\n".join(cves[:20]))
+        except Exception:
+            pass
+    lm = report_dir / "00_live_system_audit.md"
+    if lm.exists():
+        iocs = [ln for ln in lm.read_text("utf-8", "ignore").splitlines() if any(k in ln for k in ("IOC_", "SSL_EXPIRED", "SSL_EXPIRING_SOON", "Privileged=true", "docker.sock", "Wiz-ENV-Risk", "NOPASSWD", "PermitRootLogin"))][:20]
+        if iocs:
+            parts.append("### Live System Threat Hunting IOCs & CIS Red Flags:\n" + "\n".join(iocs))
+    return "\n\n".join(parts)[:6000]
 
-    # 11 Multi-Stack Auto-Adaptive Playbooks (including Playbook 11: Zero-Day Business Logic & IDOR)
+def run_full_audit(repo_dir: Path, report_dir: Path):
+    print("[AI-Auditor v4.1] [1/3] Building Multi-Stack Attack Surface, Auth Matrix & Cross-Layer Context...", flush=True)
+    collect_attack_surface(repo_dir, report_dir / "04_attack_surface_map.md")
+    build_auth_matrix_zeroday(repo_dir, report_dir / "04b_auth_matrix_zeroday.md")
+    semgrep_sum = load_semgrep_summary(report_dir / "03_semgrep_sast.json")
+    cross_ctx = load_cross_layer_context(report_dir)
+
+    # 14 Multi-Stack Auto-Adaptive Playbooks (only runs Playbooks matching actual files in workspace!)
     playbooks = [
         ("Playbook 1: Auth, Session, JWT, RBAC & IDOR/BOLA",
          (".cs", ".ts", ".tsx", ".js", ".py", ".php"),
@@ -228,31 +278,42 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
         ("Playbook 11: Zero-Day Business Logic, IDOR/BOLA, Auth Bypass & Race Condition Hunter",
          (".cs", ".ts", ".js", ".py", ".php"),
          r"Approve|Payment|Transfer|Balance|OverTime|CheckIn|UpdateStatus|Delete|Role|Admin|userId|customerCode|orderId"),
+        ("Playbook 12: Modern API, OAuth2/JWT, Webhook HMAC & Anti-Bruteforce",
+         (".cs", ".ts", ".js", ".py", ".php"),
+         r"redirect_uri|webhook|signature|hmac|alg.*none|rateLimit|throttle|reset-password|otp|verifyJwt"),
+        ("Playbook 13: CI/CD, GitHub Actions & Supply-Chain Poisoning",
+         (".yml", ".yaml", ".json", "dockerfile", "makefile"),
+         r"pull_request_target|github\.event|postinstall|preinstall|curl\s+.*\|\s*(?:bash|sh)|actions/checkout"),
+        ("Playbook 14: Windows Enterprise, IIS ViewState machineKey & SMB/WinRM Hardening",
+         (".config", ".md"),
+         r"machineKey|validationKey|decryptionKey|customErrors|debug=\"true\"|RunAsPPL|SMBv1|Unquoted Service"),
     ]
 
     sys_auditor = (
-        "Bạn là Chuyên gia Bảo mật Ứng dụng & Hạ tầng (Principal AppSec/SecOps Engineer) thực hiện kiểm toán phòng thủ. "
+        "Bạn là Chuyên gia Bảo mật Ứng dụng & Hạ tầng (Principal AppSec/SecOps Engineer — v4.1 Precision Engine). "
         "Trả lời bằng tiếng Việt rõ ràng, chính xác, chuyên nghiệp. "
-        "CHỈ báo cáo lỗ hổng có bằng chứng trực tiếp trong đoạn code/cấu hình được cung cấp: nêu rõ tên file, dòng/hàm, "
-        "xếp hạng chuẩn CRITICAL / HIGH / MEDIUM / LOW (không dùng WARNING/ERROR), nguyên nhân, "
-        "**Giải pháp vá lỗi cụ thể (Solution / Code hoặc Config mẫu)**, và đề xuất ModSecurity WAF rule nếu phù hợp. KHÔNG bịa đặt."
+        "QUY TẮC BẰNG CHỨNG BẮT BUỘC: CHỈ báo cáo lỗ hổng có bằng chứng trực tiếp trong đoạn mã/cấu hình đánh số dòng (`L...`) được cung cấp. "
+        "Mỗi phát hiện phải có đủ 4 mục: (1) Mức độ **CRITICAL / HIGH / MEDIUM / LOW** + nhãn **`[CONFIRMED]`** hoặc **`[NEEDS-REVIEW]`**, "
+        "(2) Vị trí chính xác `File:Dòng` & trích đoạn code thật, (3) Kịch bản khai thác thực tế, "
+        "(4) **Giải pháp vá lỗi cụ thể (Unified Diff / Code mẫu + ModSecurity WAF rule nếu phù hợp)**. KHÔNG bịa đặt."
     )
 
     draft_findings = []
     active_pbs = []
     for title, exts, kw in playbooks:
-        snippets = load_code_snippets(repo_dir, exts, kw, max_files=5, max_chars_per_file=2200)
+        snippets = load_code_snippets(repo_dir, exts, kw, max_files=5, max_chars_per_file=2600)
         if snippets:
             active_pbs.append((title, snippets))
 
     total_pb = max(1, len(active_pbs))
-    print(f"[AI-Auditor v3.0] [2/3] Detected {len(active_pbs)}/10 applicable Playbooks — running with {AUDIT_MODEL}...", flush=True)
+    print(f"[AI-Auditor v4.1] [2/3] Detected {len(active_pbs)}/14 applicable Playbooks (Sink-Centered Window) — running with {AUDIT_MODEL}...", flush=True)
     for idx, (title, snippets) in enumerate(active_pbs, 1):
+        extra_ctx = f"\n\n### Bối cảnh đa tầng (Auth Matrix / OS CVE / IOCs):\n{cross_ctx[:2500]}" if ("Playbook 11" in title or "Playbook 8" in title) and cross_ctx else ""
         prompt = (
-            f"Hãy thực hiện **{title}** trên các tệp thực tế sau đây.\n\n"
-            f"### Tóm tắt Semgrep liên quan:\n{semgrep_sum[:2000]}\n\n"
-            f"### Mã nguồn / Cấu hình thực tế (đã che secret):\n{snippets}\n\n"
-            f"Hãy liệt kê các lỗ hổng thực tế theo chuẩn **CRITICAL / HIGH / MEDIUM / LOW**, kèm **Giải pháp vá (Solution)** cụ thể."
+            f"Hãy thực hiện **{title}** trên các đoạn ngữ cảnh thực tế sau đây.\n\n"
+            f"### Tóm tắt Semgrep & Taint-Mode liên quan:\n{semgrep_sum[:2000]}{extra_ctx}\n\n"
+            f"### Mã nguồn / Cấu hình thực tế (Sink-Centered Context, đã che secret):\n{snippets}\n\n"
+            f"Hãy liệt kê các lỗ hổng thực tế theo chuẩn **CRITICAL / HIGH / MEDIUM / LOW** kèm nhãn **`[CONFIRMED]`** / **`[NEEDS-REVIEW]`** và **Giải pháp vá (Solution)** cụ thể."
         )
         t0 = time.time()
         print(f"  -> [{idx}/{total_pb}] Auditing: {title} ...", flush=True)
@@ -264,30 +325,33 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
         draft_findings.append(f"## {title}\n\n{res}\n")
 
     if not draft_findings:
-        draft_findings.append("## Tổng quan\n- Không tìm thấy tệp mã nguồn hoặc cấu hình khớp với 10 Playbook.\n")
+        draft_findings.append("## Tổng quan\n- Không tìm thấy tệp mã nguồn hoặc cấu hình khớp với 14 Playbook.\n")
     combined_draft = "\n---\n".join(draft_findings)
 
-    print(f"[AI-Auditor v3.0] [3/3] Running Critic / False-Positive Filter Agent with {CRITIC_MODEL}...", flush=True)
+    print(f"[AI-Auditor v4.1] [3/3] Running Evidence-Gated Critic Agent with {CRITIC_MODEL}...", flush=True)
     sys_critic = (
-        "Bạn là Chuyên gia Phản biện Bảo mật (Security Critic & Triage Lead). "
-        "Đọc bản nháp kiểm toán từ Agent 1, LOẠI BỎ các cảnh báo giả/chung chung không có bằng chứng cụ thể, "
-        "và xuất ra **Báo Cáo Điều Hành (Executive Summary & Prioritized Remediation Plan)** bằng tiếng Việt chuẩn mực gồm:\n"
-        "1) Bảng tổng hợp Top phát hiện xác thực nhất theo chuẩn **CRITICAL / HIGH / MEDIUM / LOW** (ưu tiên P0 / P1 / P2);\n"
-        "2) **Giải pháp vá lỗi chi tiết (Solutions)** cho từng vấn đề (code/config cụ thể + ModSecurity Virtual Patch nếu cần);\n"
-        "3) Checklist bàn giao cho đội Dev & SysAdmin."
+        "Bạn là Chuyên gia Phản biện Bảo mật (Security Critic & Triage Lead — Evidence-Gated v4.1). "
+        "Đọc bản nháp từ Agent 1 cùng dữ liệu đa tầng (Auth Matrix, OS/App CVE, CIS/IOCs). "
+        "LOẠI BỎ triệt để mọi cảnh báo giả hoặc nhận xét chung chung không trích dẫn được File:Dòng cụ thể. "
+        "Xuất ra **Báo Cáo Điều Hành (Executive Summary & Prioritized Remediation Plan)** bằng tiếng Việt chuẩn mực gồm:\n"
+        "1) Bảng tổng hợp Top phát hiện xác thực nhất theo chuẩn **CRITICAL / HIGH / MEDIUM / LOW**, gắn rõ **`[CONFIRMED]`** hoặc **`[NEEDS-REVIEW]`** (ưu tiên P0 / P1 / P2);\n"
+        "2) Liên kết chuỗi tấn công đa tầng (nếu có giữa Code + OS CVE + Container/IOCs);\n"
+        "3) **Giải pháp vá lỗi chi tiết (Solutions — Code Diff / Config + ModSecurity Virtual Patch)**;\n"
+        "4) Checklist bàn giao cho đội Dev & SysAdmin."
     )
+    critic_input = (f"### Dữ liệu đa tầng (Auth Matrix / CVE / IOCs):\n{cross_ctx}\n\n---\n\n### Bản nháp 14 Playbooks:\n" if cross_ctx else "") + combined_draft
     try:
-        critic_summary = call_ollama(CRITIC_MODEL, sys_critic, combined_draft[:28000], timeout=900)
+        critic_summary = call_ollama(CRITIC_MODEL, sys_critic, critic_input[:28000], timeout=900)
     except Exception as e:
         critic_summary = f"Lỗi gọi Critic model ({CRITIC_MODEL}): {e}"
 
     final_md = (
-        f"# Báo Cáo AI Deep Security Audit v3.0 (100% On-Premise)\n\n"
+        f"# Báo Cáo AI Deep Security Audit v4.1 (Precision & Deep-Context Engine)\n\n"
         f"- **Audit Model:** `{AUDIT_MODEL}` | **Critic Model:** `{CRITIC_MODEL}`\n"
-        f"- **Playbooks thực thi:** {len(active_pbs)}/10 Multi-Stack Playbooks (Tự động nhận diện)\n"
+        f"- **Playbooks thực thi:** {len(active_pbs)}/14 Multi-Stack Playbooks (Sink-Centered Context + Evidence-Gated Critic)\n"
         f"- **Workspace:** `{repo_dir}` (Read-Only Analysis)\n\n"
         f"---\n\n"
-        f"# PHẦN I: TỔNG HỢP PHẢN BIỆN & GIẢI PHÁP ƯU TIÊN (CRITIC AGENT)\n\n"
+        f"# PHẦN I: TỔNG HỢP PHẢN BIỆN & GIẢI PHÁP ƯU TIÊN (EVIDENCE-GATED CRITIC)\n\n"
         f"{critic_summary}\n\n"
         f"---\n\n"
         f"# PHẦN II: CHI TIẾT PHÂN TÍCH THEO PLAYBOOK\n\n"

@@ -1,6 +1,6 @@
-# AI Security Audit Platform (v4.0 — Full Power Expert Edition)
+# AI Security Audit Platform (v4.1 — Precision & Deep-Context Expert Edition)
 
-**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng & Hạ Tầng Cấp Độ Chuyên Gia — 100% On-Premise (44 Semgrep SAST + Dataflow Taint-Mode Rules + OS-Level CVE & SBOM CycloneDX + CIS Scorecard 0–100 + Wiz Container & Attack Paths + CrowdStrike Threat Hunting IOCs + Zero-Day Auth Matrix & 11 AI Playbooks + Katana/httpx/Nuclei/Nmap TLS).**
+**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng & Hạ Tầng Cấp Độ Chuyên Gia — 100% On-Premise (44 Semgrep SAST + Taint-Mode Rules + OS-Level CVE & SBOM CycloneDX + CIS Scorecard 0–100 + Wiz Container & Attack Paths + CrowdStrike Threat Hunting IOCs + Sink-Centered Zero-Day Context & 14 AI Playbooks + Evidence-Gated Critic + Katana/httpx/Nuclei/Nmap TLS).**
 
 Được thiết kế theo chuẩn **CTEM (Continuous Threat Exposure Management)** & **Grey-Box Security Assessment ("Trong soi ra — Ngoài soi vào")**, giúp phát hiện các **lỗ hổng chưa biết tới (0-day, lỗi logic nghiệp vụ, IDOR, SQLi sâu trong mã nguồn/DLL, NoSQLi, Shadow API, sai cấu hình hạ tầng)** mà WAF hay máy quét lỗ hổng truyền thống thường bỏ sót — **0 byte mã nguồn rời khỏi mạng nội bộ**.
 
@@ -33,7 +33,7 @@
 
 ### D. Tinh Hoa Bảo Mật Chuyên Gia (v4.0 — Full Power Expert Edition)
 - **Qualys VMDR / Tenable Nessus — OS-Level CVE Engine + SBOM CycloneDX + Nmap TLS Cipher Audit:** Tự động kéo `/var/lib/dpkg/status` & chạy `trivy rootfs` quét **100% CVE mọi gói hệ điều hành Linux** (`OpenSSL`, `OpenSSH`, `Nginx`, `Kernel`, `PostgreSQL`, `Docker`...), gắn cờ **`CISA KEV`**, soi hạn chứng chỉ SSL/TLS, xuất **SBOM CycloneDX (`08_sbom_cyclonedx.json`)** tải 1-click trên Tab 6, và tích hợp **`Nmap -sV --script=ssl-enum-ciphers`** tại Tab 5.
-- **Săn "Lỗ hổng chưa biết đến" (Zero-Day / Taint-Mode / Business Logic):** Bổ sung 9 rule **Semgrep Taint-Mode (`mode: taint` — `Source -> Sink`)** trong `05_taint_zeroday_rules.yaml` (nâng tổng lên **44 rules**), tự động lập **Ma trận Phân quyền Endpoint (`04b_auth_matrix_zeroday.md`)** phát hiện API thiếu xác thực & **IDOR/BOLA**, cùng **11 AI Playbooks** săn lỗi logic nghiệp vụ & Race Condition.
+- **Săn "Lỗ hổng chưa biết đến" (Zero-Day / Taint-Mode / Sink-Centered Context / 14 Playbooks):** Bổ sung 9 rule **Semgrep Taint-Mode (`mode: taint` — `Source -> Sink`)** trong `05_taint_zeroday_rules.yaml` (nâng tổng lên **44 rules**), tự động lập **Ma trận Phân quyền Endpoint (`04b_auth_matrix_zeroday.md`)**, trích xuất **cửa sổ ngữ cảnh ±22 dòng quanh đúng dòng lỗi (Sink-Centered Context)**, **14 Auto-Adaptive AI Playbooks** (gồm OAuth2/JWT/Webhook, CI/CD Supply-Chain, Windows IIS ViewState `machineKey`) và **Evidence-Gated Critic** gắn nhãn **`[CONFIRMED]` / `[NEEDS-REVIEW]`**.
 - **Wiz — Deep Container Inspection & Attack Paths:** Kiểm tra sâu Docker `Capabilities` (`SYS_ADMIN`, `SYS_PTRACE`), `PidMode`, `ReadonlyRootfs`, phát hiện tên biến môi trường `ENV` chứa bí mật (che giá trị), và nối chuỗi tấn công ghép (**Toxic Combinations**).
 - **CrowdStrike / Rapid7 — Expert Threat Hunting & IOCs:** Săn **Deleted-but-Running Binaries** (`/proc/*/exe (deleted)`), rootkit **`/etc/ld.so.preload`**, **Webshell PHP/ASPX**, **WMI Persistence**, **Registry Run Keys**, **SMB Shares `Everyone`**, kết nối `ESTABLISHED` và lịch sử đăng nhập.
 - **Lynis / CIS-CAT / DefectDojo:** Chấm điểm **CIS Scorecard `0–100` (Hạng A–F)**, so sánh biến động **`+N mới / -M đã vá`**, quản trị vòng đời lỗ hổng (Triage Dropdown), và **Live GPU Telemetry (`/api/telemetry`)**.

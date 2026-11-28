@@ -227,10 +227,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v4.0")
+app = FastAPI(title="AI Security Audit Platform v4.1")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.0</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.1</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -240,7 +240,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v4.0</h1>
+<h1>AI Security Audit v4.1</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -249,7 +249,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.0 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.1 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -309,7 +309,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .sev-LOW{background:#0c4a6e;color:#bae6fd;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v4.0 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div><h1>AI Security Audit v4.1 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px"><span id="gpuPill" class="gpu-pill" title="Đang đọc thông số GPU..."><span class="gpu-dot"></span><span id="gpuText">GPU...</span></span><span id="ollamaBadge" class="badge">Đang kiểm tra Ollama...</span><a href="/logout" style="color:#94a3b8;margin-left:10px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -1030,7 +1030,7 @@ def api_rotate_token(request: Request):
 def download_win_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
-    script = f"""# AI Security Audit v4.0 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
+    script = f"""# AI Security Audit v4.1 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
 $ErrorActionPreference = 'SilentlyContinue'
 $hostName = $env:COMPUTERNAME
 $work = Join-Path $env:TEMP ("ace_audit_" + $hostName + "_" + (Get-Random))
@@ -1114,9 +1114,9 @@ if (Test-Path 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config') 
 }}
 $zip = "$work.zip"
 Compress-Archive -Path "$work\\*" -DestinationPath $zip -Force
-Write-Host "[AI Security Audit v4.0] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
+Write-Host "[AI Security Audit v4.1] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
 $resp = Invoke-RestMethod -Uri "{server_base}/api/collector/upload?token={token}&host=$hostName&os=windows" -Method Post -InFile $zip -ContentType "application/zip" -TimeoutSec 120
-Write-Host ("[AI Security Audit v4.0] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
+Write-Host ("[AI Security Audit v4.1] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
 Remove-Item $work, $zip -Recurse -Force -ErrorAction SilentlyContinue
 """
     hdrs = {"Content-Disposition": "attachment; filename=win_collector.ps1"} if dl else {}
@@ -1188,7 +1188,7 @@ done
 
 TGZ="${{WORK}}.tar.gz"
 tar -czf "$TGZ" -C "$WORK" .
-echo "[AI Security Audit v4.0] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
+echo "[AI Security Audit v4.1] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
 curl -fsS -X POST --data-binary @"$TGZ" -H "Content-Type: application/gzip" "{server_base}/api/collector/upload?token={token}&host=${{HOST}}&os=linux"
 echo ""
 rm -rf "$WORK" "$TGZ"
@@ -1621,7 +1621,7 @@ def api_export_report(folder: str, fmt: str, request: Request):
     if fmt == "sbom":
         sbom = d / "08_sbom_cyclonedx.json"
         if not sbom.exists():
-            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v4.0 trở lên)")
+            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v4.1 trở lên)")
         return FileResponse(str(sbom), filename=f"SBOM_CycloneDX_{safe_name}.json", media_type="application/json")
     raise HTTPException(400, "Format must be pdf, excel, or sbom")
 
