@@ -1,0 +1,143 @@
+rules:
+  # 1. Node.js / Express / Next.js Taint: Command Injection
+  - id: zeroday-taint-js-command-injection
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Taint-Tracking (Zero-Day): Dữ liệu người dùng từ HTTP Request chảy thẳng vào thực thi lệnh hệ thống (Command Injection)."
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+      - pattern: req.params
+      - pattern: req.headers
+    pattern-sinks:
+      - pattern: exec($X, ...)
+      - pattern: execSync($X, ...)
+      - pattern: spawn($X, ...)
+      - pattern: child_process.exec($X, ...)
+
+  # 2. Node.js / Express Taint: SQL / NoSQL Injection
+  - id: zeroday-taint-js-sqli-nosqli
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Taint-Tracking (Zero-Day): Dữ liệu HTTP chảy trực tiếp vào truy vấn SQL/NoSQL không qua tham số hóa."
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+      - pattern: req.params
+    pattern-sinks:
+      - pattern: $DB.query($Q, ...)
+      - pattern: $DB.execute($Q, ...)
+      - pattern: '$COL.find({ $where: $Q })'
+
+  # 3. Node.js / Express Taint: Path Traversal
+  - id: zeroday-taint-js-path-traversal
+    mode: taint
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Taint-Tracking (Zero-Day): Dữ liệu HTTP chảy vào thao tác đọc/ghi file có nguy cơ Path Traversal."
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+      - pattern: req.params
+    pattern-sinks:
+      - pattern: fs.readFile($P, ...)
+      - pattern: fs.readFileSync($P, ...)
+      - pattern: fs.writeFile($P, ...)
+      - pattern: res.sendFile($P, ...)
+
+  # 4. Node.js / Express Taint: SSRF
+  - id: zeroday-taint-js-ssrf
+    mode: taint
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Taint-Tracking (Zero-Day): Dữ liệu HTTP chảy trực tiếp vào URL gọi mạng phía server (nguy cơ SSRF)."
+    pattern-sources:
+      - pattern: req.body
+      - pattern: req.query
+      - pattern: req.params
+    pattern-sinks:
+      - pattern: fetch($U, ...)
+      - pattern: axios.get($U, ...)
+      - pattern: axios.post($U, ...)
+      - pattern: axios($U)
+
+  # 5. Python Taint: Command Injection & Code Execution
+  - id: zeroday-taint-py-cmdi
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: "Taint-Tracking (Zero-Day): Dữ liệu đầu vào web chảy thẳng vào os.system / subprocess shell=True / eval."
+    pattern-sources:
+      - pattern: request.args
+      - pattern: request.form
+      - pattern: request.json
+      - pattern: request.query_params
+    pattern-sinks:
+      - pattern: os.system($X)
+      - pattern: subprocess.run($X, ..., shell=True, ...)
+      - pattern: subprocess.Popen($X, ..., shell=True, ...)
+      - pattern: eval($X)
+
+  # 6. Python Taint: SSRF
+  - id: zeroday-taint-py-ssrf
+    mode: taint
+    languages: [python]
+    severity: WARNING
+    message: "Taint-Tracking (Zero-Day): Dữ liệu đầu vào HTTP chảy vào requests/urllib (nguy cơ SSRF)."
+    pattern-sources:
+      - pattern: request.args
+      - pattern: request.form
+      - pattern: request.json
+    pattern-sinks:
+      - pattern: requests.get($U, ...)
+      - pattern: requests.post($U, ...)
+      - pattern: urllib.request.urlopen($U, ...)
+
+  # 7. PHP / WordPress Taint: RCE & Webshell-like Execution
+  - id: zeroday-taint-php-rce
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: "Taint-Tracking (Zero-Day): Đầu vào $_GET/$_POST/$_REQUEST chảy trực tiếp vào hàm thực thi lệnh PHP (RCE / Webshell)."
+    pattern-sources:
+      - pattern: $_GET
+      - pattern: $_POST
+      - pattern: $_REQUEST
+      - pattern: $_COOKIE
+    pattern-sinks:
+      - pattern: system($X, ...)
+      - pattern: shell_exec($X)
+      - pattern: exec($X, ...)
+      - pattern: passthru($X, ...)
+      - pattern: eval($X)
+
+  # 8. PHP / WordPress Taint: File Inclusion / Path Traversal
+  - id: zeroday-taint-php-lfi
+    mode: taint
+    languages: [php]
+    severity: ERROR
+    message: "Taint-Tracking (Zero-Day): Đầu vào HTTP chảy vào include/require/file_get_contents (nguy cơ LFI / Path Traversal)."
+    pattern-sources:
+      - pattern: $_GET
+      - pattern: $_POST
+      - pattern: $_REQUEST
+    pattern-sinks:
+      - pattern: include($P)
+      - pattern: require($P)
+      - pattern: file_get_contents($P, ...)
+
+  # 9. C# / .NET Taint: SQL Injection & Process Execution
+  - id: zeroday-taint-csharp-sqli-cmdi
+    mode: taint
+    languages: [csharp]
+    severity: ERROR
+    message: "Taint-Tracking (Zero-Day): Dữ liệu HTTP Request (.NET) chảy trực tiếp vào SqlCommand / Process.Start."
+    pattern-sources:
+      - pattern: Request.QueryString[$K]
+      - pattern: Request.Form[$K]
+      - pattern: Request[$K]
+    pattern-sinks:
+      - pattern: new SqlCommand($Q, ...)
+      - pattern: Process.Start($P, ...)

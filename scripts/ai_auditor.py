@@ -102,6 +102,55 @@ def collect_attack_surface(repo_dir: Path, out_file: Path) -> str:
     out_file.write_text(report, encoding="utf-8")
     return report
 
+def build_auth_matrix_zeroday(repo_dir: Path, out_file: Path) -> str:
+    """Zero-Day / Business Logic Hunter: Builds an Endpoint & Authorization Matrix highlighting unauthenticated routes & IDOR/BOLA risks."""
+    route_re = re.compile(
+        r"(\[(?:HttpGet|HttpPost|HttpPut|HttpDelete|Route)\([^\)]*\)\]|"
+        r"(?:app|router)\.(?:get|post|put|delete|patch)\(\s*['\"][^'\"]+['\"]|"
+        r"@(?:app|router)\.(?:get|post|put|delete)\(\s*['\"][^'\"]+['\"]|"
+        r"export\s+async\s+function\s+(?:GET|POST|PUT|DELETE)\b|"
+        r"add_action\(\s*['\"]wp_ajax_nopriv_[^'\"]+['\"])"
+    )
+    auth_re = re.compile(r"Authorize|require_auth|authenticate|verifyToken|jwt|getServerSession|current_user|isAuthenticated|checkRole", re.I)
+    idor_re = re.compile(r"(?:userId|user_id|customerCode|orderId|order_id|companyId|employeeId|accountId|idCheckIn|/:id\b|\{id\})", re.I)
+
+    rows = []
+    for fp in safe_iter_files(repo_dir, (".cs", ".ts", ".tsx", ".js", ".py", ".php")):
+        try:
+            txt = fp.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        lines_list = txt.splitlines()
+        file_has_auth = bool(auth_re.search(txt))
+        for idx, ln in enumerate(lines_list, 1):
+            m = route_re.search(ln)
+            if not m:
+                continue
+            window = "\n".join(lines_list[max(0, idx - 4):min(len(lines_list), idx + 6)])
+            has_local_auth = bool(auth_re.search(window)) or file_has_auth
+            has_allow_anon = "AllowAnonymous" in window or "wp_ajax_nopriv_" in ln
+            has_idor_param = bool(idor_re.search(window))
+            risk = "HIGH (Public + IDOR Risk)" if (has_allow_anon or not has_local_auth) and has_idor_param else (
+                "MEDIUM (Check Auth)" if (has_allow_anon or not has_local_auth) else (
+                "MEDIUM (Check IDOR/BOLA)" if has_idor_param else "LOW (Auth Detected)"))
+            rel = fp.relative_to(repo_dir).as_posix()
+            rows.append(f"| `{rel}:{idx}` | `{redact(ln.strip())[:90]}` | {'Không/Public' if (has_allow_anon or not has_local_auth) else 'Có'} | {'Có tham số ID' if has_idor_param else '-'} | **{risk}** |")
+            if len(rows) >= 80:
+                break
+        if len(rows) >= 80:
+            break
+
+    md = [
+        "# Ma Trận Phân Quyền Endpoint & Nguy Cơ Zero-Day / IDOR (Auth Matrix v4.0)\n",
+        f"- Tổng số route phân tích: **{len(rows)}** (tự động nhận diện từ `.NET / Node / Next.js / Python / PHP`)\n",
+        "| Vị trí (File:Line) | Khai báo Route / Endpoint | Xác thực | Tham số ID | Đánh giá Zero-Day / IDOR |",
+        "|---|---|---|---|---|",
+    ]
+    md.extend(rows if rows else ["| - | *(Không tìm thấy khai báo route HTTP trong workspace)* | - | - | - |"])
+    res = "\n".join(md) + "\n"
+    out_file.write_text(res, encoding="utf-8")
+    return res
+
 def load_semgrep_summary(semgrep_json: Path) -> str:
     if not semgrep_json.exists():
         return "Không có dữ liệu Semgrep."
@@ -139,11 +188,12 @@ def load_code_snippets(repo_dir: Path, exts: tuple, keyword_re: str, max_files: 
     return "\n\n".join(chunks)
 
 def run_full_audit(repo_dir: Path, report_dir: Path):
-    print("[AI-Auditor v3.0] [1/3] Building Multi-Stack Attack Surface Map...", flush=True)
+    print("[AI-Auditor v4.0] [1/3] Building Multi-Stack Attack Surface & Zero-Day Auth Matrix...", flush=True)
     collect_attack_surface(repo_dir, report_dir / "04_attack_surface_map.md")
+    auth_matrix = build_auth_matrix_zeroday(repo_dir, report_dir / "04b_auth_matrix_zeroday.md")
     semgrep_sum = load_semgrep_summary(report_dir / "03_semgrep_sast.json")
 
-    # 10 Multi-Stack Auto-Adaptive Playbooks (chỉ chạy các Playbook có file thực tế khớp!)
+    # 11 Multi-Stack Auto-Adaptive Playbooks (including Playbook 11: Zero-Day Business Logic & IDOR)
     playbooks = [
         ("Playbook 1: Auth, Session, JWT, RBAC & IDOR/BOLA",
          (".cs", ".ts", ".tsx", ".js", ".py", ".php"),
@@ -175,6 +225,9 @@ def run_full_audit(repo_dir: Path, report_dir: Path):
         ("Playbook 10: WordPress / CMS & Next.js Specific Security",
          (".php", ".ts", ".tsx", ".js", ".mjs"),
          r"wp-config|DISALLOW_FILE_EDIT|xmlrpc|next\.config|middleware\.ts|use server|getServerSideProps"),
+        ("Playbook 11: Zero-Day Business Logic, IDOR/BOLA, Auth Bypass & Race Condition Hunter",
+         (".cs", ".ts", ".js", ".py", ".php"),
+         r"Approve|Payment|Transfer|Balance|OverTime|CheckIn|UpdateStatus|Delete|Role|Admin|userId|customerCode|orderId"),
     ]
 
     sys_auditor = (

@@ -227,10 +227,10 @@ def start_job(title: str, steps: list):
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
-app = FastAPI(title="AI Security Audit Platform v3.5")
+app = FastAPI(title="AI Security Audit Platform v4.0")
 
 LOGIN_HTML = """<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v3.5</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.0</title>
 <style>
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh}
 .card{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;width:360px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -240,7 +240,7 @@ input{width:100%;box-sizing:border-box;padding:10px 12px;background:#0f172a;bord
 button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:14px}
 .err{color:#f87171;font-size:13px;margin-top:10px}
 </style></head><body><div class="card">
-<h1>AI Security Audit v3.5</h1>
+<h1>AI Security Audit v4.0</h1>
 <p>15 Ecosystems · Agentless SSH · 1-Line Push Collector (Port 2810)</p>
 <form method="post" action="/login">
 <label>Username</label><input name="username" value="admin" required>
@@ -249,7 +249,7 @@ button{margin-top:20px;width:100%;padding:11px;background:#0284c7;border:none;bo
 </form></div></body></html>"""
 
 MAIN_HTML = r"""<!doctype html>
-<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v3.5 — Port 2810</title>
+<html lang="vi"><head><meta charset="utf-8"><title>AI Security Audit v4.0 — Port 2810</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b1120;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;font-size:14px}
@@ -309,7 +309,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
 .sev-LOW{background:#0c4a6e;color:#bae6fd;padding:2px 7px;border-radius:4px;font-weight:700;font-size:11px;display:inline-block}
 </style></head><body>
 <header>
-  <div><h1>AI Security Audit v3.5 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
+  <div><h1>AI Security Audit v4.0 <span class="badge badge-ssh">Agentless SSH</span><span class="badge badge-push">1-Line Collector</span><span class="badge">15 Hệ sinh thái</span></h1></div>
   <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px"><span id="gpuPill" class="gpu-pill" title="Đang đọc thông số GPU..."><span class="gpu-dot"></span><span id="gpuText">GPU...</span></span><span id="ollamaBadge" class="badge">Đang kiểm tra Ollama...</span><a href="/logout" style="color:#94a3b8;margin-left:10px;text-decoration:none;font-size:13px">Đăng xuất</a></div>
 </header>
 <div class="nav">
@@ -483,7 +483,8 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
         <div><label>Phân tích chéo bằng AI Local (Shadow API)?</label><select id="kAi"><option value="yes">Có — Phân tích bằng Ollama Local</option><option value="no">Không — Chỉ chạy Katana + httpx (~20 giây)</option></select></div>
         <div><label>Chọn Model AI phân tích Web Surface</label><select id="kModel"><option value="qwen3-vl:8b">qwen3-vl:8b</option></select></div>
       </div>
-      <div style="margin:6px 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kNuclei" checked style="width:auto"> Bật <b>ProjectDiscovery Nuclei (Safe Profile)</b> — Quét CVE Web, Misconfiguration, Exposed Panels (-severity critical,high,medium -rl 10)</label></div>
+      <div style="margin:6px 0 8px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kNuclei" checked style="width:auto"> Bật <b>ProjectDiscovery Nuclei (Safe Profile)</b> — Quét CVE Web, Misconfiguration, Exposed Panels (-severity critical,high,medium -rl 10)</label></div>
+      <div style="margin:0 0 12px"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;color:#e2e8f0"><input type="checkbox" id="kNmap" checked style="width:auto"> Bật <b>Nmap Safe Service &amp; TLS Cipher Audit</b> — Soi phiên bản dịch vụ &amp; giao thức TLS 1.0/1.1/Cipher yếu (Qualys/Nessus-grade)</label></div>
       <button class="btn btn-ai" onclick="runKatanaScan()">Chạy Khám phá Bề mặt Web &amp; Nuclei</button>
     </div>
   </div>
@@ -498,6 +499,7 @@ pre{background:#020617;border:1px solid #1e293b;border-radius:8px;padding:14px;o
       <div style="margin-top:10px">
         <button class="btn btn-danger" onclick="exportReport('pdf')">Xuất Báo Cáo PDF (Gửi Lãnh Đạo)</button>
         <button class="btn btn-green" onclick="exportReport('excel')">Xuất Báo Cáo Excel (.xlsx — 5 Sheet)</button>
+        <button class="btn btn-primary" onclick="exportReport('sbom')">Tải SBOM (CycloneDX JSON)</button>
         <button class="btn btn-gray" onclick="delReportFolder()">Xóa đợt báo cáo này</button>
       </div>
     </div>
@@ -930,8 +932,9 @@ async function runKatanaScan(){
   const depth = parseInt(document.getElementById('kDepth').value || '3');
   const with_ai = document.getElementById('kAi').value === 'yes';
   const with_nuclei = document.getElementById('kNuclei') ? document.getElementById('kNuclei').checked : true;
+  const with_nmap = document.getElementById('kNmap') ? document.getElementById('kNmap').checked : true;
   if(!url.startsWith('http')) return alert('Vui lòng nhập URL hợp lệ bắt đầu bằng http:// hoặc https://');
-  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai,with_nuclei, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
+  const r = await fetch('/api/katana-scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url,name,depth,with_ai,with_nuclei,with_nmap, audit_model:(document.getElementById('auditModelSel')||{}).value||'qwen3-vl:8b'})});
   const d = await r.json();
   if(d.job_id){ activeJobId = d.job_id; showTab('jobs', document.querySelectorAll('.nav button')[3]); loadJobs(); loadJobLog(d.job_id); }
 }
@@ -1027,7 +1030,7 @@ def api_rotate_token(request: Request):
 def download_win_collector(request: Request, token: str = "", dl: int = 0):
     verify_collector_token(token)
     server_base = str(request.base_url).rstrip("/")
-    script = f"""# AI Security Audit v3.5 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
+    script = f"""# AI Security Audit v4.0 — Windows CIS & MITRE ATT&CK Deep Collector (100% Read-Only)
 $ErrorActionPreference = 'SilentlyContinue'
 $hostName = $env:COMPUTERNAME
 $work = Join-Path $env:TEMP ("ace_audit_" + $hostName + "_" + (Get-Random))
@@ -1111,9 +1114,9 @@ if (Test-Path 'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config') 
 }}
 $zip = "$work.zip"
 Compress-Archive -Path "$work\\*" -DestinationPath $zip -Force
-Write-Host "[AI Security Audit v3.5] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
+Write-Host "[AI Security Audit v4.0] Uploading CIS/MITRE snapshot for $hostName to {server_base}..." -ForegroundColor Cyan
 $resp = Invoke-RestMethod -Uri "{server_base}/api/collector/upload?token={token}&host=$hostName&os=windows" -Method Post -InFile $zip -ContentType "application/zip" -TimeoutSec 120
-Write-Host ("[AI Security Audit v3.5] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
+Write-Host ("[AI Security Audit v4.0] DONE! Job ID: " + $resp.job_id + " | Report: " + $resp.report_tag) -ForegroundColor Green
 Remove-Item $work, $zip -Recurse -Force -ErrorAction SilentlyContinue
 """
     hdrs = {"Content-Disposition": "attachment; filename=win_collector.ps1"} if dl else {}
@@ -1176,13 +1179,16 @@ mkdir -p "$WORK/configs"
   echo '```'
 }} > "$WORK/live_system_audit.md"
 
+mkdir -p "$WORK/os_packages/var/lib/dpkg" "$WORK/os_packages/etc"
+[ -f /var/lib/dpkg/status ] && cp /var/lib/dpkg/status "$WORK/os_packages/var/lib/dpkg/status" 2>/dev/null || true
+[ -f /etc/os-release ] && cp /etc/os-release "$WORK/os_packages/etc/os-release" 2>/dev/null || true
 for p in /etc/nginx /etc/haproxy /etc/postgresql /etc/mysql /etc/mongod.conf /etc/redis /etc/ssh/sshd_config; do
   [ -e "$p" ] && cp -rL "$p" "$WORK/configs/" 2>/dev/null || true
 done
 
 TGZ="${{WORK}}.tar.gz"
 tar -czf "$TGZ" -C "$WORK" .
-echo "[AI Security Audit v3.5] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
+echo "[AI Security Audit v4.0] Uploading CIS/MITRE snapshot for $HOST to {server_base}..."
 curl -fsS -X POST --data-binary @"$TGZ" -H "Content-Type: application/gzip" "{server_base}/api/collector/upload?token={token}&host=${{HOST}}&os=linux"
 echo ""
 rm -rf "$WORK" "$TGZ"
@@ -1547,6 +1553,8 @@ async def api_katana_scan(request: Request):
     depth = max(1, min(5, int(body.get("depth", 3))))
     with_ai = bool(body.get("with_ai", False))
     with_nuclei = bool(body.get("with_nuclei", True))
+    with_nmap = bool(body.get("with_nmap", True))
+    host_only = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0]
     tag = f"{datetime.now().strftime('%Y-%m-%d_%H%M')}_katana_{name}"
     wsl_rep = f"/mnt/f/ERP-Audit-Lab/reports/{tag}"
     nuc_part = (
@@ -1555,17 +1563,23 @@ async def api_katana_scan(request: Request):
         f"nuclei -u '{url}' -severity critical,high,medium -tags cve,misconfig,exposure,panel,default-login -rl 10 -c 5 -timeout 8 -silent -nc -o '{wsl_rep}/nuclei.txt' 2>/dev/null || true; "
         f"else echo 'Nuclei chưa cài đặt' > '{wsl_rep}/nuclei.txt'; fi; "
     ) if with_nuclei else ""
+    nmap_part = (
+        f"echo '[4/4] Running Nmap Safe Service & TLS Cipher Audit ({host_only})...' && "
+        f"if command -v nmap >/dev/null 2>&1; then "
+        f"nmap -Pn -sV --top-ports 25 --script=ssl-enum-ciphers --host-timeout 60s '{host_only}' -oN '{wsl_rep}/nmap_tls.txt' >/dev/null 2>&1 || true; "
+        f"else echo 'Nmap chưa cài đặt' > '{wsl_rep}/nmap_tls.txt'; fi; "
+    ) if with_nmap else ""
     bash_cmd = (
         f"mkdir -p '{wsl_rep}' && "
         f"echo '[1/3] Running httpx fingerprint & TLS/Header probe...' && "
         f"echo '{url}' | httpx -title -status-code -tech-detect -server -tls-grab -silent > '{wsl_rep}/httpx.txt' 2>&1 || true; "
         f"echo '[2/3] Running Katana safe crawl (depth={depth}, rate-limit=10/s)...' && "
         f"katana -u '{url}' -d {depth} -c 3 -rl 10 -jc -kf all -silent -o '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; "
-        f"{nuc_part}"
+        f"{nuc_part}{nmap_part}"
         f"{{ echo '# Báo Cáo Khám Phá Bề Mặt Web & Nuclei Safe Scan ({url})'; echo ''; "
         f"echo '## 1. HTTPX Fingerprint (Tech Stack / Server / TLS / Status)'; echo '```text'; cat '{wsl_rep}/httpx.txt'; echo '```'; "
         f"echo '## 2. Nuclei Safe Vulnerability Scan (Critical / High / Medium)'; echo '```text'; ([ -s '{wsl_rep}/nuclei.txt' ] && cat '{wsl_rep}/nuclei.txt' || echo 'Không phát hiện lỗ hổng Nuclei (Safe Profile).'); echo '```'; "
-        f"echo '## 3. Discovered Endpoints & JS Routes (Katana — top 200)'; echo '```text'; head -n 200 '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; echo '```'; "
+        f"echo '## 3. Nmap Service Version & TLS Cipher Audit (Qualys/Nessus-grade)'; echo '```text'; ([ -s '{wsl_rep}/nmap_tls.txt' ] && head -n 120 '{wsl_rep}/nmap_tls.txt' || echo 'Bỏ qua Nmap.'); echo '```'; echo '## 4. Discovered Endpoints & JS Routes (Katana — top 200)'; echo '```text'; head -n 200 '{wsl_rep}/katana_urls.txt' 2>/dev/null || true; echo '```'; "
         f"}} > '{wsl_rep}/07_web_surface_katana.md'; "
         f"echo \"DISCOVERED_URLS=$(wc -l < '{wsl_rep}/katana_urls.txt' 2>/dev/null || echo 0)\""
     )
@@ -1604,7 +1618,12 @@ def api_export_report(folder: str, fmt: str, request: Request):
         out = d / f"AI_Security_Audit_Report_{safe_name}.pdf"
         report_exporter.export_pdf(d, out)
         return FileResponse(str(out), filename=out.name, media_type="application/pdf")
-    raise HTTPException(400, "Format must be pdf or excel")
+    if fmt == "sbom":
+        sbom = d / "08_sbom_cyclonedx.json"
+        if not sbom.exists():
+            raise HTTPException(404, "Chưa có file SBOM CycloneDX cho đợt báo cáo này (hãy chạy quét v4.0 trở lên)")
+        return FileResponse(str(sbom), filename=f"SBOM_CycloneDX_{safe_name}.json", media_type="application/json")
+    raise HTTPException(400, "Format must be pdf, excel, or sbom")
 
 
 @app.post("/api/jobs/{jid}/stop")

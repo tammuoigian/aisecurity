@@ -127,9 +127,11 @@ if command -v docker >/dev/null 2>&1; then
   echo '```text'
   docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || true
   echo ""
-  echo "--- Docker Risk Inspection ---"
+  echo "--- Docker Risk Inspection (Wiz Deep Capabilities / Seccomp / Sensitive ENV Names) ---"
   for cid in $(docker ps -q 2>/dev/null); do
-    docker inspect "$cid" --format '{{.Name}} | Privileged={{.HostConfig.Privileged}} | NetMode={{.HostConfig.NetworkMode}} | User={{.Config.User}} | Mounts={{range .Mounts}}{{.Source}}:{{.Destination}},{{end}}' 2>/dev/null || true
+    docker inspect "$cid" --format '{{.Name}} | Privileged={{.HostConfig.Privileged}} | NetMode={{.HostConfig.NetworkMode}} | PidMode={{.HostConfig.PidMode}} | ReadonlyRoot={{.HostConfig.ReadonlyRootfs}} | CapAdd={{.HostConfig.CapAdd}} | User={{.Config.User}} | Mounts={{range .Mounts}}{{.Source}}:{{.Destination}},{{end}}' 2>/dev/null || true
+    ENV_HITS=$(docker inspect "$cid" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -iE '(PASS|SECRET|TOKEN|API_?KEY|CONN|PRIVATE)' | cut -d= -f1 | tr '\n' ',' || true)
+    [ -n "$ENV_HITS" ] && echo "  [Wiz-ENV-Risk] Sensitive ENV keys in container (values masked): ${ENV_HITS%,}"
   done
   echo '```'
 else
@@ -172,6 +174,15 @@ echo "[SSH authorized_keys Inventory]"
 for kf in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
   [ -f "$kf" ] && echo "  $kf ($(wc -l < "$kf") keys)"
 done
+echo ""
+echo "[CrowdStrike Expert Hunting: Deleted-but-Running Binaries (/proc/*/exe)]"
+ls -l /proc/*/exe 2>/dev/null | grep '(deleted)' | head -n 15 | sed 's/^/IOC_DELETED_BIN: /' || echo "  None"
+echo ""
+echo "[CrowdStrike Rootkit Check: /etc/ld.so.preload]"
+[ -s /etc/ld.so.preload ] && (echo "IOC_LD_PRELOAD_FOUND:"; cat /etc/ld.so.preload) || echo "  Clean (empty/not present)"
+echo ""
+echo "[Webshell Indicator Scan (/var/www — eval(base64 / system($_ / passthru)]"
+grep -rnE "(eval\s*\(\s*base64_decode|system\s*\(\s*\\\$_|shell_exec\s*\(\s*\\\$_|passthru\s*\(\s*\\\$_)" /var/www 2>/dev/null | head -n 15 | sed 's/^/IOC_WEBSHELL_SUSPECT: /' || echo "  None"
 echo '```'
 """
 
@@ -270,6 +281,14 @@ Write-Output "[Top Established Outbound Connections]"
 Get-NetTCPConnection -State Established -EA 0 | Where-Object { $_.RemoteAddress -notmatch '^(127\.|::1|0\.0\.0\.0)' } | Select-Object -First 20 LocalPort, RemoteAddress, RemotePort, OwningProcess | Format-Table -AutoSize | Out-String
 Write-Output "[Suspicious Processes Running From Temp/AppData/Public]"
 Get-CimInstance Win32_Process -EA 0 | Where-Object { $_.ExecutablePath -match '(\\Temp\\|\\AppData\\Local\\Temp\\|\\Users\\Public\\)' } | ForEach-Object { Write-Output ("IOC_SUSPICIOUS_PROC: PID=$($_.ProcessId) $($_.Name) -> $($_.ExecutablePath)") }
+Write-Output "[CrowdStrike Fileless Persistence: WMI Event Subscriptions]"
+Get-CimInstance -Namespace root\subscription -ClassName __EventFilter -EA 0 | Select-Object Name, Query | Format-Table -AutoSize | Out-String
+Write-Output "[Registry Run / RunOnce Keys]"
+Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run','HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -EA 0 | Out-String
+Write-Output "[SMB Shares Open to Everyone]"
+Get-SmbShareAccess -Name * -EA 0 | Where-Object { $_.AccountName -match 'Everyone' -and $_.Name -notmatch '\$$' } | Select-Object Name, AccountName, AccessRight | Format-Table -AutoSize | Out-String
+Write-Output "[IIS Webshell Indicator Scan (wwwroot *.aspx/*.ashx)]"
+Get-ChildItem 'C:\inetpub\wwwroot' -Include *.aspx,*.ashx -Recurse -EA 0 | Select-String -Pattern 'Process\.Start|cmd\.exe|eval\s*\(\s*Request' -EA 0 | Select-Object -First 15 Path, LineNumber | Format-Table -AutoSize | Out-String
 Write-Output '```'
 """
 
@@ -352,9 +371,15 @@ def collect_linux(cli, target_dir: Path, remote_paths: str, sudo_pass: str):
     else:
         print("  [INFO] Root/sudo read-only SSH mode", flush=True)
 
-    print("  [1/3] Collecting Live System, CIS Hardening, MITRE Persistence & Docker Snapshot...", flush=True)
-    snap_out, _ = run_remote(cli, LINUX_SNAPSHOT_CMD, use_sudo=use_sudo, sudo_pass=sudo_pass, timeout=60)
+    print("  [1/3] Collecting Live System, CIS Hardening, MITRE Persistence, SSL/TLS & Threat Hunting Snapshot...", flush=True)
+    snap_out, _ = run_remote(cli, LINUX_SNAPSHOT_CMD, use_sudo=use_sudo, sudo_pass=sudo_pass, timeout=90)
     (target_dir / "live_system_audit.md").write_bytes(snap_out)
+
+    # Qualys/Nessus-grade OS Package DB pull (/var/lib/dpkg/status + /etc/os-release) for Trivy rootfs OS CVE scan
+    os_pkg_bytes, _ = run_remote(cli, "tar -czf - /var/lib/dpkg/status /etc/os-release 2>/dev/null || true", use_sudo=use_sudo, sudo_pass=sudo_pass, timeout=30)
+    n_ospkg = safe_extract_tar_bytes(os_pkg_bytes, target_dir / "os_packages")
+    if n_ospkg:
+        print(f"       Pulled Linux OS package DB ({n_ospkg} files) for Qualys/Nessus-grade OS CVE scanning.", flush=True)
 
     print("  [2/3] Pulling Service Configs (Nginx/HAProxy/PG/MySQL/MongoDB/Redis/SSH)...", flush=True)
     cfg_cmd = (
@@ -399,10 +424,20 @@ def main():
     target_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[Agentless-SSH] Connecting to {cfg['ssh_user']}@{cfg['ssh_host']}:{cfg['ssh_port']} ({cfg['ssh_auth']})...", flush=True)
-    cli = connect_ssh(
-        cfg["ssh_host"], cfg.get("ssh_port", 22), cfg["ssh_user"],
-        cfg.get("ssh_auth", "key"), cfg.get("key_path", ""), cfg.get("ssh_password", "")
-    )
+    try:
+        cli = connect_ssh(
+            cfg["ssh_host"], cfg.get("ssh_port", 22), cfg["ssh_user"],
+            cfg.get("ssh_auth", "key"), cfg.get("key_path", ""), cfg.get("ssh_password", "")
+        )
+    except Exception as ex:
+        host_ip = str(cfg.get("ssh_host", ""))
+        hint = ""
+        if host_ip.startswith("100."):
+            hint = " -> GỢI Ý: IP 100.x thuộc dải Tailscale/CGNAT. Hãy cài & đăng nhập Tailscale trên máy chủ Audit, hoặc dùng 1-Line Push Collector ở Tab 2!"
+        else:
+            hint = " -> GỢI Ý: Kiểm tra lại IP, cổng SSH, tường lửa UFW/Firewall trên máy đích, hoặc dùng 1-Line Push Collector ở Tab 2."
+        print(f"[ERROR] Không thể kết nối SSH tới {cfg['ssh_user']}@{host_ip}:{cfg.get('ssh_port', 22)} — {type(ex).__name__}: {ex}{hint}", flush=True)
+        raise SystemExit(1)
     try:
         if cfg.get("os_type", "linux") == "windows":
             collect_windows(cli, target_dir)
