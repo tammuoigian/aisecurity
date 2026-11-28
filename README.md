@@ -1,6 +1,6 @@
-# AI Security Audit Platform (v4.2 — BugHunter & OWASP AI/MCP Expert Edition)
+# AI Security Audit Platform (v4.3 — MCP Server & Cross-Agent Skill Edition)
 
-**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng, Hạ Tầng & Hệ Thống AI — 100% On-Premise (52 Semgrep SAST + Taint-Mode + OWASP LLM/MCP Rules + OS-Level CVE & SBOM CycloneDX + CWE/CVSS v3.1 + CIS Scorecard 0–100 + Wiz Container & Attack Paths + CrowdStrike Threat Hunting + 7-Question Validation Gate + Scope Guardrail + Katana/httpx/Nuclei/Nmap TLS).**
+**Nền tảng Kiểm Toán Bảo Mật Ứng Dụng, Hạ Tầng & Hệ Thống AI — 100% On-Premise (MCP Server `mcp-aisecurityaudit` + Cross-Agent `SKILL.md` + 52 Semgrep/Taint/OWASP-LLM Rules + OS CVE & SBOM CycloneDX + CWE/CVSS v3.1 + CIS Scorecard 0–100 + Wiz Attack Paths + CrowdStrike IOCs + 7-Question Gate + Katana/httpx/Nuclei/Nmap TLS).**
 
 Được thiết kế theo chuẩn **CTEM (Continuous Threat Exposure Management)** & **Grey-Box Security Assessment ("Trong soi ra — Ngoài soi vào")**, giúp phát hiện các **lỗ hổng chưa biết tới (0-day, lỗi logic nghiệp vụ, IDOR, SQLi sâu trong mã nguồn/DLL, NoSQLi, Shadow API, sai cấu hình hạ tầng)** mà WAF hay máy quét lỗ hổng truyền thống thường bỏ sót — **0 byte mã nguồn rời khỏi mạng nội bộ**.
 
@@ -179,7 +179,39 @@ print('Created web/admin_credentials.txt')
 
 ---
 
-## 5. Lưu Ý Bảo Mật Vận Hành
+## 5. Tích Hợp MCP Server (`mcp-aisecurityaudit`) & Bộ Skill Cho Mọi AI Agent
+
+### A. Cài bộ Skill `ai-security-audit` (Claude Code, Codex, Antigravity, OpenCode, Cursor, Windsurf, Freebuf)
+```bash
+# Cài tự động 1-dòng (chuẩn agentskills.io):
+npx skills add tammuoigian/aisecurity
+```
+Chi tiết cài đặt thủ công từng AI Agent xem tại [skills/ai-security-audit/references/install-all-agents.md](skills/ai-security-audit/references/install-all-agents.md).
+
+### B. Kết nối MCP Server `mcp-aisecurityaudit` (11 MCP Tools)
+```bash
+pip install -r mcp/requirements-mcp.txt
+```
+Thêm vào cấu hình MCP (`mcp_config.json`, `claude_desktop_config.json`, `.mcp.json`, `.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "mcp-aisecurityaudit": {
+      "command": "python",
+      "args": ["/path/to/aisecurity/mcp/server.py"],
+      "env": {
+        "AISEC_URL": "http://<AUDIT_SERVER>:2810",
+        "AISEC_API_KEY": "aisec_your_api_key_from_web_auth_json"
+      }
+    }
+  }
+}
+```
+- Hỗ trợ cả **`stdio`** (mặc định) và **`--transport streamable-http --port 2811`** cho team dùng chung qua VPN.
+
+---
+
+## 6. Lưu Ý Bảo Mật Vận Hành
 - **Tuyệt đối không expose cổng `2810` trực tiếp ra Internet công cộng** — luôn giới hạn qua VPN nội bộ hoặc Reverse Proxy có xác thực.
 - **Chỉ quét các hệ thống, máy chủ và tên miền thuộc quyền sở hữu hợp pháp hoặc được cấp phép bằng văn bản.**
 - File `.gitignore` đã cấu hình sẵn loại trừ toàn bộ `auth.json`, `admin_credentials.txt`, `project_secrets.json`, `keys/`, `repo/`, `targets/`, `reports/` để tránh lộ thông tin nhạy cảm khi đồng bộ Git.
